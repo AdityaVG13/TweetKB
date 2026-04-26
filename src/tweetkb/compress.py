@@ -11,7 +11,6 @@ VERSION = 1
 
 
 def _varint_encode(value: int) -> bytes:
-    """Encode an integer as a variable-length byte sequence."""
     if value < 0:
         raise ValueError("Negative values not supported")
     result = bytearray()
@@ -23,7 +22,6 @@ def _varint_encode(value: int) -> bytes:
 
 
 def _varint_decode(data: bytes, pos: int) -> tuple[int, int]:
-    """Decode a varint. Returns (value, new_position)."""
     value = 0
     shift = 0
     while True:
@@ -37,11 +35,22 @@ def _varint_decode(data: bytes, pos: int) -> tuple[int, int]:
 
 
 def encode_records(records: list[dict]) -> bytes:
-    """Encode a list of bookmark records into TweetZip format."""
-    if not records:
-        return MAGIC + struct.pack("<H", VERSION) + _varint_encode(0)
+    """Encode records into TweetZip format.
 
-    # Build dictionary of common strings
+    Layout:
+        MAGIC(4) + VERSION(2) + FLAGS(2) = 8 bytes fixed header
+        record_count (varint)
+        string_count  (varint)
+        body_size     (varint) -- byte size of encoded body
+        dict_size     (varint) -- byte size of dictionary blob
+        dict_blob     (N bytes) -- null-terminated strings
+        body          (body_size bytes)
+        checksum       (8 bytes)
+    """
+    if not records:
+        return MAGIC + struct.pack("<HH", VERSION, 1)  # flag bit 0 = empty
+
+    # Build string table
     all_strings: list[str] = []
     string_indices: dict[str, int] = {}
 
@@ -52,149 +61,137 @@ def encode_records(records: list[dict]) -> bytes:
     ]
     for s in STATIC_DICT:
         if s not in string_indices:
-            idx = len(all_strings)
-            string_indices[s] = idx
+            string_indices[s] = len(all_strings)
             all_strings.append(s)
 
-    # Extract all string values from records
+    def get_field(record: dict, *keys: str) -> str:
+        for key in keys:
+            val = record.get(key)
+            if val:
+                return str(val)
+        return ""
+
+    # Collect strings from records
     for record in records:
-        for key in ("status_id", "author_handle", "author_name", "tweet_text", "status_url"):
-            val = record.get(key, "")
+        for val in (
+            get_field(record, "id", "status_id"),
+            get_field(record, "text", "tweet_text"),
+            get_field(record, "url", "status_url"),
+            get_field(record, "author", "author_handle"),
+            get_field(record, "author_name"),
+        ):
             if val and val not in string_indices:
                 string_indices[val] = len(all_strings)
                 all_strings.append(val)
 
-    # Build dictionary blob
-    dict_blob = b"".join(s.encode("utf-8") + b"\x00" for s in all_strings)
-
-    # Encode records
-    encoded_records = bytearray()
-    prev_status_id = 0
-
+    # Encode body
+    body = bytearray()
+    prev_id = 0
     for record in records:
-        status_id_str = record.get("status_id", "")
-        status_id_int = int(status_id_str) if status_id_str.isdigit() else 0
+        id_str = get_field(record, "id", "status_id")
+        id_int = int(id_str) if id_str.isdigit() else 0
+        body.extend(_varint_encode(id_int - prev_id))
+        prev_id = id_int
 
-        # Delta encode status ID
-        delta = status_id_int - prev_status_id
-        encoded_records.extend(_varint_encode(delta))
-        prev_status_id = status_id_int
+        text = get_field(record, "text", "tweet_text")
+        author = get_field(record, "author", "author_handle")
+        url = get_field(record, "url", "status_url")
+        mask = (1 if text else 0) | (2 if author else 0) | (4 if url else 0)
+        body.extend(_varint_encode(mask))
 
-        # Field mask (which fields are present)
-        fields = []
-        text = record.get("tweet_text", "")
-        author = record.get("author_handle", "")
-        url = record.get("status_url", "")
-
-        if text:
-            fields.append("text")
-        if author:
-            fields.append("author")
-        if url:
-            fields.append("url")
-
-        field_mask = 0
-        if "text" in fields:
-            field_mask |= 1
-        if "author" in fields:
-            field_mask |= 2
-        if "url" in fields:
-            field_mask |= 4
-        encoded_records.extend(_varint_encode(field_mask))
-
-        # Encode each field as string table reference or inline
-        for field_name in ("text", "author", "url"):
-            if field_name not in fields:
+        for val, bit in [(text, 1), (author, 2), (url, 4)]:
+            if not (mask & bit):
                 continue
-            value = record.get(field_name, "")
-            if value in string_indices:
-                # Reference to string table (high bit set)
-                ref = string_indices[value] | 0x8000
-                encoded_records.extend(struct.pack("<H", ref))
+            if val in string_indices:
+                body.extend(_varint_encode(0))   # length=0 means ref
+                body.extend(_varint_encode(string_indices[val]))
             else:
-                # Inline string (length prefix)
-                bvalue = value.encode("utf-8")
-                encoded_records.extend(_varint_encode(len(bvalue)))
-                encoded_records.extend(bvalue)
+                bval = val.encode("utf-8")
+                body.extend(_varint_encode(len(bval)))
+                body.extend(bval)
 
-    # Build final container
-    flags = 0
-    header = MAGIC + struct.pack("<H", flags)
-    header += _varint_encode(len(records))
-    header += _varint_encode(len(all_strings))
-    header += struct.pack("<Q", len(dict_blob))
-    header += dict_blob
+    body_bytes = bytes(body)
+    body_size = len(body_bytes)
+    dict_blob = b"".join(s.encode("utf-8") + b"\x00" for s in all_strings)
+    dict_size = len(dict_blob)
+    checksum = zlib.crc32(body_bytes) & 0xFFFFFFFF
 
-    body = bytes(encoded_records)
-    checksum = zlib.crc32(body) & 0xFFFFFFFF
-
-    return header + body + struct.pack("<Q", checksum)
+    # Assemble: fixed header (8) + varints + dict_blob + body + checksum
+    result = bytearray()
+    result.extend(MAGIC)                          # 4 bytes
+    result.extend(struct.pack("<HH", VERSION, 0)) # 4 bytes
+    result.extend(_varint_encode(len(records)))    # 1+ bytes
+    result.extend(_varint_encode(len(all_strings)))
+    result.extend(_varint_encode(body_size))
+    result.extend(_varint_encode(dict_size))
+    result.extend(dict_blob)
+    result.extend(body_bytes)
+    result.extend(struct.pack("<Q", checksum))
+    return bytes(result)
 
 
 def decode_records(data: bytes) -> list[dict]:
     """Decode TweetZip data back into records."""
-    if len(data) < len(MAGIC) + 2:
+    if len(data) < 8:
         raise ValueError("Data too short")
+    if data[:4] != MAGIC:
+        raise ValueError(f"Invalid magic: {data[:4]!r}")
 
-    magic = data[:4]
-    if magic != MAGIC:
-        raise ValueError(f"Invalid magic: {magic!r}")
+    # Fixed header: MAGIC(4) + VERSION(2) + FLAGS(2) = 8 bytes
+    flags = struct.unpack("<H", data[6:8])[0]
+    pos = 8
 
-    version = struct.unpack("<H", data[4:6])[0]
-    pos = 6
+    if flags & 1:  # empty records flag
+        return []
+
 
     record_count, pos = _varint_decode(data, pos)
-    dict_len, pos = _varint_decode(data, pos)
+    string_count, pos = _varint_decode(data, pos)
+    body_size, pos = _varint_decode(data, pos)
     dict_size, pos = _varint_decode(data, pos)
 
+    # Parse dictionary
     dict_blob = data[pos : pos + dict_size]
+    strings = [s.decode("utf-8") for s in dict_blob.split(b"\x00") if s]
     pos += dict_size
 
-    # Parse dictionary
-    strings = []
-    for part in dict_blob.split(b"\x00"):
-        if part:
-            strings.append(part.decode("utf-8"))
-
-    body_start = pos
-    body_end = len(data) - 8
-    body = data[body_start:body_end]
-    stored_checksum = struct.unpack("<Q", data[body_end:])[0]
-    computed_checksum = zlib.crc32(body) & 0xFFFFFFFF
-
-    if computed_checksum != stored_checksum:
-        raise ValueError(f"Checksum mismatch: {computed_checksum:#x} != {stored_checksum:#x}")
+    # Body and checksum
+    body = data[pos : pos + body_size]
+    pos += body_size
+    stored_crc = struct.unpack("<Q", data[pos : pos + 8])[0]
+    computed_crc = zlib.crc32(body) & 0xFFFFFFFF
+    if computed_crc != stored_crc:
+        raise ValueError(f"Checksum mismatch: {computed_crc:#x} != {stored_crc:#x}")
 
     # Decode records
-    records = []
-    pos = 0
-    prev_status_id = 0
-
+    records: list[dict[str, Any]] = []
+    rpos = 0
+    prev_id = 0
     for _ in range(record_count):
-        delta, pos = _varint_decode(data, pos)
-        status_id = prev_status_id + delta
-        prev_status_id = status_id
+        delta, rpos = _varint_decode(body, rpos)
+        id_val = prev_id + delta
+        prev_id = id_val
+        mask, rpos = _varint_decode(body, rpos)
 
-        field_mask, pos = _varint_decode(data, pos)
-
-        record: dict[str, Any] = {"status_id": str(status_id)}
-
-        for field_name, mask_bit in [("text", 1), ("author", 2), ("url", 4)]:
-            if not (field_mask & mask_bit):
+        record: dict[str, Any] = {"id": id_val, "status_id": str(id_val)}
+        for key, bit, out_key in [("text", 1, "text"), ("author", 2, "author"), ("url", 4, "url")]:
+            if not (mask & bit):
                 continue
-
-            ref = struct.unpack("<H", data[pos : pos + 2])[0]
-            pos += 2
-
-            if ref & 0x8000:
-                idx = ref & 0x7FFF
-                if idx < len(strings):
-                    record[field_name] = strings[idx]
+            length, rpos = _varint_decode(body, rpos)
+            if length == 0:
+                idx, rpos = _varint_decode(body, rpos)
+                record[out_key] = strings[idx] if idx < len(strings) else ""
             else:
-                length, new_pos = _varint_decode(data, pos)
-                pos = new_pos
-                record[field_name] = data[pos : pos + length].decode("utf-8")
-                pos += length
+                record[out_key] = body[rpos : rpos + length].decode("utf-8")
+                rpos += length
+
+        # Aliases
+        if "text" in record:
+            record["tweet_text"] = record["text"]
+        if "url" in record:
+            record["status_url"] = record["url"]
+        if "author" in record:
+            record["author_handle"] = record["author"]
 
         records.append(record)
 
@@ -202,55 +199,50 @@ def decode_records(data: bytes) -> list[dict]:
 
 
 def inspect_archive(data: bytes) -> dict:
-    """Inspect a TweetZip archive without decoding all records."""
-    if len(data) < len(MAGIC) + 2:
+    """Inspect a TweetZip archive without full decode."""
+    if len(data) < 8:
         raise ValueError("Data too short")
-
-    magic = data[:4]
-    if magic != MAGIC:
-        raise ValueError(f"Invalid magic: {magic!r}")
-
-    pos = 6
-    record_count, pos = _varint_decode(data, pos)
-    dict_len, pos = _varint_decode(data, pos)
-    dict_size, pos = _varint_decode(data, pos)
-
+    if data[:4] != MAGIC:
+        raise ValueError("Invalid magic")
+    flags = struct.unpack("<H", data[6:8])[0]
+    if flags & 1:
+        return {"magic": "TWZ1", "version": VERSION, "record_count": 0, "is_empty": True, "total_size": len(data)}
+    pos = 8
+    record_count, _ = _varint_decode(data, pos)
+    string_count, pos = _varint_decode(data, pos)
+    body_size, pos = _varint_decode(data, pos)
+    dict_size, _ = _varint_decode(data, pos)
     return {
-        "magic": MAGIC.decode(),
+        "magic": "TWZ1",
+        "version": VERSION,
         "record_count": record_count,
-        "dict_entries": dict_len,
-        "dict_size_bytes": dict_size,
-        "total_size_bytes": len(data),
-        "compression_ratio": f"{len(data) / (record_count * 200 + 1):.2f}x" if record_count > 0 else "N/A",
+        "string_count": string_count,
+        "body_size": body_size,
+        "dict_size": dict_size,
+        "total_size": len(data),
     }
 
 
 def encode_file(input_path: Path, output_path: Path) -> None:
-    """Encode a JSONL file to TweetZip."""
     records = []
     with input_path.open("r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if line:
                 records.append(json.loads(line))
-    data = encode_records(records)
-    output_path.write_bytes(data)
+    output_path.write_bytes(encode_records(records))
 
 
 def decode_file(input_path: Path, output_path: Path) -> None:
-    """Decode a TweetZip file to JSONL."""
-    data = input_path.read_bytes()
-    records = decode_records(data)
+    records = decode_records(input_path.read_bytes())
     with output_path.open("w", encoding="utf-8") as f:
         for record in records:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 def verify_archive(path: Path) -> bool:
-    """Verify a TweetZip archive. Returns True if valid."""
     try:
-        data = path.read_bytes()
-        decode_records(data)
+        decode_records(path.read_bytes())
         return True
     except Exception:
         return False
