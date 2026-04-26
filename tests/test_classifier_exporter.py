@@ -2,12 +2,13 @@ from pathlib import Path
 
 from tweetkb.classifier import classify_text, embed_text
 from tweetkb.db import Store
-from tweetkb.exporter import export_obsidian, note_filename
+from tweetkb.exporters.obsidian import export_obsidian
+from tweetkb.exporters.obsidian import _note_filename as note_filename
 
 
 def test_classifier_detects_agents():
     result = classify_text("New browser agent automation workflow with MCP tool use", [])
-    assert result["category"] == "ai-agents"
+    assert result["primary"] == "ai-agents"
     assert result["confidence"] > 0.5
     assert "ai-agents" in result["tags"]
 
@@ -22,8 +23,9 @@ def test_obsidian_export(tmp_path: Path):
     bookmark_id = store.upsert_bookmark({"status_url": "https://x.com/a/status/1", "tweet_text": "AI agent tool"})
     assert bookmark_id
     result = classify_text("AI agent tool", [])
-    store.update_classification(bookmark_id, result)
-    count = export_obsidian(store, tmp_path / "vault")
+    store.set_classifications(bookmark_id, result["categories"], result["primary"], result["confidence"])
+    store.update_bookmark_analysis(bookmark_id, summary=result.get("summary", ""), why_it_matters=result.get("why_it_matters", ""))
+    count, skipped = export_obsidian(store, tmp_path / "vault")
     assert count == 1
     notes = list((tmp_path / "vault" / "Bookmarks").glob("*.md"))
     assert len(notes) == 1
@@ -36,9 +38,9 @@ def test_obsidian_export_excludes_category(tmp_path: Path):
     store.init()
     bookmark_id = store.upsert_bookmark({"status_url": "https://x.com/a/status/1", "tweet_text": "random"})
     assert bookmark_id
-    store.conn.execute("UPDATE bookmarks SET category = 'misc' WHERE id = ?", (bookmark_id,))
-    store.conn.commit()
-    count = export_obsidian(store, tmp_path / "vault", exclude_categories={"misc"})
+    # Set classification to misc
+    store.set_classifications(bookmark_id, [{"slug": "misc", "confidence": 0.9, "method": "test"}], "misc", 0.9)
+    count, skipped = export_obsidian(store, tmp_path / "vault", exclude_categories={"misc"})
     assert count == 0
     assert list((tmp_path / "vault" / "Bookmarks").glob("*.md")) == []
     store.close()
@@ -50,10 +52,9 @@ def test_obsidian_export_includes_category(tmp_path: Path):
     agent_id = store.upsert_bookmark({"status_url": "https://x.com/a/status/1", "tweet_text": "agent"})
     misc_id = store.upsert_bookmark({"status_url": "https://x.com/a/status/2", "tweet_text": "misc"})
     assert agent_id and misc_id
-    store.conn.execute("UPDATE bookmarks SET category = 'ai-agents' WHERE id = ?", (agent_id,))
-    store.conn.execute("UPDATE bookmarks SET category = 'misc' WHERE id = ?", (misc_id,))
-    store.conn.commit()
-    count = export_obsidian(store, tmp_path / "vault", include_categories={"ai-agents"})
+    store.set_classifications(agent_id, [{"slug": "ai-agents", "confidence": 0.9, "method": "test"}], "ai-agents", 0.9)
+    store.set_classifications(misc_id, [{"slug": "misc", "confidence": 0.9, "method": "test"}], "misc", 0.9)
+    count, skipped = export_obsidian(store, tmp_path / "vault", include_categories={"ai-agents"})
     assert count == 1
     assert len(list((tmp_path / "vault" / "Bookmarks").glob("*.md"))) == 1
     store.close()
