@@ -59,7 +59,7 @@ uv run --extra dev pytest
 16. Keep the language footprint small. Use at most three implementation languages in this repository.
 17. Preferred language set: Python for orchestration and analysis, Zig for native performance modules, and TypeScript only if a real desktop/web UI is added.
 18. Do not introduce Rust, Go, Java, Swift, Kotlin, C++, or shell-heavy subsystems unless you remove a planned language or document a compelling reason.
-19. Do not invent a custom database compression algorithm as the default storage path. Use SQLite-native storage, normalization, dedupe, indexes, `VACUUM`, and optional standard compression for exports/backups first.
+19. Build a custom experimental compression algorithm in Zig or Python, but do not make it the default live SQLite storage path until it is benchmarked and proven safe.
 20. Any Zig usage must be purposeful, tested, and optional from the Python CLI when Zig is not installed.
 
 ## Language Budget And Zig Role
@@ -122,11 +122,20 @@ Do not build a Zig GUI.
 
 ## Storage, Compression, And Database Size
 
-The goal is a compact, reliable SQLite database, not a clever custom compression experiment.
+The goal is a compact, reliable SQLite database plus an experimental custom compression engine we can benchmark and potentially turn into a differentiator.
 
-Do not invent a bespoke compression algorithm for SQLite rows. It will make search, migrations, interoperability, debugging, and open-source adoption worse.
+Build a custom compression algorithm, preferably in Zig with a Python fallback or Python reference implementation.
 
-Use this order instead:
+Important boundary:
+
+- The live SQLite database must remain normal SQLite by default.
+- The custom compressor should be used for backups, graph archives, exported corpora, embedding payload archives, or optional cold-storage blobs.
+- Do not store primary tweet text only in a custom opaque format.
+- Do not break FTS search, migrations, or direct SQLite inspection.
+- The compression format must be documented and versioned.
+- The decompressor must be implemented and tested before the compressor is considered complete.
+
+Use this order for live DB compactness:
 
 1. Normalize repeated data into tables:
    - authors
@@ -143,7 +152,210 @@ Use this order instead:
 7. Use SQLite `VACUUM` after large deletes/exclusions.
 8. Use SQLite `PRAGMA page_count`, `page_size`, and `freelist_count` for diagnostics.
 9. Use optional compressed backups/exports with standard formats.
-10. Only consider row-level compression for large derived blobs, never for core searchable tweet text.
+10. Only consider row-level compression for large derived blobs, never for core searchable tweet text unless there is also a plain searchable representation.
+
+## Custom Compression Engine
+
+Add a custom compression subsystem named `tweetzip`.
+
+Preferred implementation:
+
+```text
+zig/
+  build.zig
+  src/
+    main.zig
+    tweetzip.zig
+    varint.zig
+    bitstream.zig
+    dictionary.zig
+    checksums.zig
+  tests/
+    tweetzip_tests.zig
+```
+
+Python fallback/reference:
+
+```text
+src/tweetkb/compress.py
+tests/test_compress.py
+```
+
+The custom format should target bookmark corpora, not arbitrary binary files.
+
+Design goals:
+
+- optimized for short text records
+- optimized for repeated AI/tool/model vocabulary
+- optimized for repeated URLs/domains/authors
+- deterministic output
+- streaming decode where practical
+- fast enough for thousands to hundreds of thousands of bookmarks
+- simple enough to audit
+- no unsafe data loss
+- no external native dependency required
+
+Suggested format name:
+
+```text
+TweetZip v1
+```
+
+Suggested file extensions:
+
+```text
+.tweetzip
+.twz
+```
+
+TweetZip v1 container:
+
+```text
+magic:      "TWZ1"
+flags:      u16
+record_ct:  varint
+dict_len:   varint
+dict_blob:  bytes
+records:    repeated compressed records
+checksum:   u64
+```
+
+Record model:
+
+```text
+record_id_delta: varint
+field_mask:      varint
+status_id:       delta or string table reference
+author:          dictionary/string table reference
+url:             dictionary/string table reference
+text:            compressed token stream
+metadata:        optional JSON-ish compact block
+```
+
+Compression techniques to implement:
+
+1. Static domain dictionary:
+   - `https://`
+   - `http://`
+   - `x.com/`
+   - `twitter.com/`
+   - `github.com/`
+   - `huggingface.co/`
+   - `arxiv.org/`
+   - `openai.com/`
+   - `anthropic.com/`
+   - common AI/model/tool tokens
+
+2. Per-archive dynamic dictionary:
+   - authors
+   - domains
+   - repeated URL prefixes
+   - repeated entity names
+   - repeated category labels
+   - top N token n-grams
+
+3. Token stream encoding:
+   - split text into words, whitespace, punctuation, URLs, handles, hashtags
+   - dictionary references for frequent tokens
+   - raw literals for rare tokens
+   - varint lengths
+
+4. Delta encoding:
+   - numeric status IDs as decimal strings can be delta encoded when sorted
+   - timestamps can be delta encoded if present
+   - repeated authors/domains use dictionary IDs
+
+5. Optional simple entropy pass:
+   - implement a small custom RLE/varint packing pass
+   - do not implement a complex arithmetic coder unless the simple format is already complete
+
+6. Checksums:
+   - implement deterministic checksum over decompressed records
+   - use standard CRC32 or FNV-1a if easier
+   - document choice
+
+Required CLI:
+
+```bash
+uv run tweetkb compress export --out ./exports/bookmarks.twz
+uv run tweetkb compress inspect ./exports/bookmarks.twz
+uv run tweetkb compress decompress ./exports/bookmarks.twz --out ./exports/bookmarks.jsonl
+uv run tweetkb compress benchmark
+uv run tweetkb compress verify ./exports/bookmarks.twz
+```
+
+If Zig is available:
+
+```bash
+uv run tweetkb compress export --engine zig --out ./exports/bookmarks.twz
+uv run tweetkb compress benchmark --engine zig
+```
+
+If Zig is not available:
+
+```bash
+uv run tweetkb compress export --engine python --out ./exports/bookmarks.twz
+```
+
+Compression benchmark must report:
+
+```text
+input_jsonl_bytes
+tweetzip_bytes
+sqlite_bytes
+gzip_jsonl_bytes if available through stdlib
+compression_ratio_vs_jsonl
+compression_ratio_vs_sqlite
+encode_ms
+decode_ms
+records_per_second
+roundtrip_ok
+```
+
+Test corpus:
+
+- generate synthetic bookmarks
+- use current DB if present but do not require it
+- include repeated AI/model/tool terms
+- include repeated URLs/domains
+- include Unicode text
+- include empty fields
+- include long tweets
+- include duplicate authors
+
+Required tests:
+
+- roundtrip single record
+- roundtrip many records
+- Unicode roundtrip
+- URL dictionary roundtrip
+- corrupted magic rejects
+- corrupted checksum rejects
+- benchmark command runs on synthetic data
+- Python and Zig outputs must decode to the same logical records if both engines exist
+
+Python API:
+
+```python
+from tweetkb.compress import encode_records, decode_records, inspect_archive
+```
+
+Zig CLI API:
+
+```bash
+zig build run -- compress input.jsonl output.twz
+zig build run -- decompress input.twz output.jsonl
+zig build test
+```
+
+Important:
+
+- This is allowed to be experimental.
+- It should be fun and technically interesting.
+- It must not endanger user data.
+- Always keep the original SQLite DB readable.
+- Always provide a verifier.
+- Always provide decompression.
 
 Add a `compact` command:
 
