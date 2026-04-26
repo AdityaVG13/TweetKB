@@ -141,6 +141,200 @@ Autonomous final state should include:
 - docs
 - final report
 
+## Completion Standard For This Run
+
+Do not stop after implementing one or two isolated pieces. Continue until the whole backend framework is substantially built, hardened, tested, documented, and ready for review.
+
+This means:
+
+- make a complete implementation pass
+- run tests
+- inspect failures
+- fix failures
+- run tests again
+- inspect code quality
+- optimize obvious slow or fragile paths
+- add missing tests
+- run tests again
+- update docs
+- run final checks
+- write final report
+
+Use multiple passes:
+
+```text
+Pass 1: inspect and plan in BUILD_LOG
+Pass 2: schema and migrations
+Pass 3: analysis pipeline
+Pass 4: entities, graph, clusters, projects
+Pass 5: export adapters
+Pass 6: custom TweetZip compression
+Pass 7: review API and UI improvements
+Pass 8: tests and fixtures
+Pass 9: docs and CI
+Pass 10: performance, hardening, cleanup
+Pass 11: final verification and report
+```
+
+If time is short, finish backend correctness before UI polish.
+
+## Research Requirement
+
+Do targeted research before implementing major subsystems. Do not over-research forever.
+
+Research checklist:
+
+- SQLite migrations and FTS5 usage
+- SQLite compaction and `VACUUM`
+- SQLite page stats
+- Obsidian frontmatter/link conventions
+- Logseq Markdown conventions
+- JSONL and CSV export conventions
+- simple graph clustering approaches
+- varint encoding
+- dictionary compression
+- Zig build/test conventions
+- Tauri v2 only if you scaffold desktop
+
+Record useful findings in `docs/BUILD_LOG.md` with links or source names.
+
+Use primary sources when available. If offline, inspect installed docs, tool help, examples, and local packages.
+
+## Hardening Requirements
+
+After initial implementation, harden the code.
+
+Hardening checklist:
+
+- all CLI commands have useful `--help`
+- errors are actionable
+- no tracebacks for expected user mistakes
+- live collection commands are clearly marked
+- tests do not need live browser
+- tests do not need live X/Twitter
+- tests do not need API keys
+- no generated DB or vault output in git
+- no user-specific paths in tracked files
+- no secrets
+- migrations are additive and safe
+- export overwrite behavior is documented
+- compression verifier exists
+- corrupt compressed archives fail cleanly
+- provider config is optional
+- LLM calls are disabled by default
+- missing Zig gives clean fallback
+- missing Browser-Harness gives clean message
+- missing Apple Events permission gives clean message
+
+## Optimization Requirements
+
+Do not prematurely micro-optimize, but do remove obvious inefficiencies.
+
+Optimize:
+
+- repeated DB writes with transactions
+- repeated classification of unchanged bookmarks
+- repeated entity extraction of unchanged bookmarks
+- export loops that rewrite unchanged files unnecessarily if easy
+- large JSON loads where streaming is simple
+- SQLite indexes for common filters
+- TweetZip encode/decode on synthetic corpora
+
+Add benchmark commands where useful:
+
+```bash
+uv run tweetkb benchmark
+uv run tweetkb benchmark --stage export
+uv run tweetkb benchmark --stage compress
+uv run tweetkb compress benchmark
+```
+
+Benchmarks should be informative, not perfect.
+
+## Test Matrix
+
+Run a real test matrix before final report:
+
+```bash
+uv run --extra dev pytest
+uv run python -m compileall src tests
+uv run tweetkb init --db /tmp/tweetkb-test.sqlite3
+uv run tweetkb stats --db /tmp/tweetkb-test.sqlite3
+uv run tweetkb export --vault /tmp/tweetkb-vault --exclude-category misc
+uv run tweetkb compress benchmark
+uv run tweetkb compress export --out /tmp/bookmarks.twz
+uv run tweetkb compress verify /tmp/bookmarks.twz
+uv run tweetkb compress decompress /tmp/bookmarks.twz --out /tmp/bookmarks.jsonl
+```
+
+If exact commands differ after implementation, run equivalent commands and document the difference.
+
+Do not fake test results. If something cannot run, explain exactly why and what was run instead.
+
+## Git And Commit Guardrails
+
+If allowed to commit:
+
+- keep commits logical
+- do not commit local DB files
+- do not commit exported vault output
+- do not commit secrets
+- do not rewrite history unless instructed
+- run tests before final commit
+- use conventional commit messages
+
+Suggested commit flow:
+
+```text
+docs: record architecture and build plan
+feat: add migrations and config
+feat: add analyzer pipeline
+feat: add entity graph and projects
+feat: add export adapters
+feat: add tweetzip compression
+feat: improve review api
+test: expand backend coverage
+ci: add automated checks
+docs: finalize operating guide
+```
+
+If not allowed to commit, leave changes organized and include a commit plan.
+
+## Guardrails Against Scope Collapse
+
+Do not spend the whole run on:
+
+- Tauri shell
+- CSS polish
+- one compression micro-optimization
+- one perfect LLM prompt
+- live browser debugging
+- GitHub metadata
+- README polishing only
+
+Always keep moving across the core backend.
+
+Minimum useful overnight outcome:
+
+- migrations
+- richer analysis
+- entities
+- graph/clusters
+- projects
+- exports
+- TweetZip
+- tests
+- docs
+
+Stretch outcome:
+
+- improved review UI
+- Tauri scaffold
+- benchmark suite
+- CI
+- Logseq export
+- JSON graph visualization data
+
 ## Language Budget And Zig Role
 
 Avoid the common failure mode where a repo becomes a collage of Python, TypeScript, Rust, Go, shell, SQL, YAML, and random generated assets. This project should feel intentionally small.
