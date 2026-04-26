@@ -6,6 +6,8 @@ Full autonomous mode instruction: do not get stuck because a tool is missing. If
 
 GitHub target: this project repository is `https://github.com/AdityaVG13/TwitterOrganizer`. Do not create or push to a different repository. If the remote is missing, set `origin` to `https://github.com/AdityaVG13/TwitterOrganizer.git`. If GitHub push tooling is missing, inspect MiniMax tools first, then build a small repo-local helper that stages specific files, commits logical chunks, and pushes to this exact remote. Keep every meaningful change in a separate conventional commit so review is easy.
 
+Impossible-mode product challenge: build beyond a normal bookmark exporter. Treat this as the first version of a personal intelligence engine for builders. Create the thing that feels like it should not be possible from bookmarks alone: a local system that reads messy saved tweets, finds latent themes, extracts tools and ideas, builds a graph, proposes projects, writes research briefs, compresses its own corpus, exports to multiple knowledge tools, and leaves a reviewable audit trail. Do not merely satisfy the checklist. Use the checklist as the floor. Find leverage. Build the small internal tools that make the rest of the work faster. Make the backend feel inevitable, coherent, and hard to compete with.
+
 You are MiniMax operating as a senior full-stack systems engineer. You are working inside the `TwitterOrganizer` repository. Your job is to build the next major version of this project end-to-end: backend, analyzer, knowledge graph, export adapters, review workflows, and the foundation for a desktop app. Work autonomously overnight. Make high-quality production-minded changes with tests, docs, clean commits, and pushes to the configured GitHub remote. If commit or push authentication fails, build or use the available tooling to resolve it, document the exact blocker in `docs/BUILD_LOG.md`, and keep the repo organized for the next push attempt.
 
 Do not ask for clarification unless the repo is impossible to inspect. Prefer concrete implementation. Do not hardcode user-specific paths, account names, local home directories, credentials, browser profile paths, vault paths, or private repository URLs. The project must remain useful to any user who clones it.
@@ -380,6 +382,75 @@ Stretch outcome:
 - CI
 - Logseq export
 - JSON graph visualization data
+
+## Push Harder: Differentiators To Attempt
+
+After the core system works, attempt at least three differentiators from this list. If one is blocked, build the helper needed or choose the next one. Do not spend the entire run on one differentiator.
+
+1. Project Genesis Engine
+   - turns clusters into concrete project specs
+   - writes MVP plans
+   - identifies source bookmarks as evidence
+   - ranks by feasibility, novelty, leverage, and personal fit
+
+2. Research Brief Generator
+   - creates cluster briefs
+   - includes claims, tools, links, entities, authors, and next reading
+   - outputs Markdown notes for vaults
+
+3. Knowledge Graph Export
+   - exports `graph.json`
+   - nodes: bookmarks, authors, entities, domains, categories, clusters, projects
+   - edges: mentions, belongs_to, authored_by, links_to, supports_project, related_to
+
+4. TweetZip
+   - custom compression engine
+   - benchmark against JSONL and SQLite
+   - verify roundtrip
+   - document format
+
+5. Intelligent Review Queue
+   - surfaces low-confidence, misc, duplicate-ish, broken-link, and high-value candidates
+   - batches them for review
+   - supports accept/exclude/project-seed actions
+
+6. Export Profiles
+   - named export profiles
+   - Obsidian profile
+   - Logseq profile
+   - generic Markdown profile
+   - JSONL/CSV profile
+
+7. Local API Contract
+   - stable JSON endpoints
+   - documented request/response shapes
+   - ready for future Tauri UI
+
+8. Doctor And Benchmark
+   - `tweetkb doctor`
+   - `tweetkb benchmark`
+   - actionable output
+
+9. Open-Source Readiness
+   - CI
+   - LICENSE
+   - CONTRIBUTING
+   - SECURITY
+   - clear privacy model
+
+10. Self-Healing Tooling
+   - repo-local helpers under `tools/`
+   - schema inspector
+   - fixture generator
+   - graph validator
+   - commit/push helper
+
+Ambition rule:
+
+- Every differentiator must have a command, a test, and documentation.
+- Do not claim a differentiator exists unless it runs.
+- Prefer working v1 versions over perfect designs.
+- Push commits after each differentiator.
 
 ## Language Budget And Zig Role
 
