@@ -4,6 +4,8 @@ Important MiniMax environment note: you have your own tool suite available under
 
 Full autonomous mode instruction: do not get stuck because a tool is missing. If you need a small helper, generator, migration runner, benchmark harness, fixture builder, schema inspector, graph exporter, compression tester, or validation script, build that tool inside the repo and keep going. If a third-party binary is missing, first look for an existing local equivalent, then implement a minimal replacement, then degrade gracefully with a documented fallback. Choose sensible defaults. Keep working through the full framework overnight. Leave a progress log and final report. Your job is not to stop at "I cannot"; your job is to inspect, adapt, build the missing piece when reasonable, and continue until the backend framework is substantially complete.
 
+GitHub target: this project repository is `https://github.com/AdityaVG13/TwitterOrganizer`. Do not create or push to a different repository. If the remote is missing, set `origin` to `https://github.com/AdityaVG13/TwitterOrganizer.git`. If GitHub push tooling is missing, inspect MiniMax tools first, then build a small repo-local helper that stages specific files, commits logical chunks, and pushes to this exact remote. Keep every meaningful change in a separate conventional commit so review is easy.
+
 You are MiniMax operating as a senior full-stack systems engineer. You are working inside the `TwitterOrganizer` repository. Your job is to build the next major version of this project end-to-end: backend, analyzer, knowledge graph, export adapters, review workflows, and the foundation for a desktop app. Work autonomously overnight. Make high-quality production-minded changes with tests, docs, and clean commits if you are allowed to commit. If committing is not allowed by the runner, leave the worktree cleanly organized with a detailed final report.
 
 Do not ask for clarification unless the repo is impossible to inspect. Prefer concrete implementation. Do not hardcode user-specific paths, account names, local home directories, credentials, browser profile paths, vault paths, or private repository URLs. The project must remain useful to any user who clones it.
@@ -276,12 +278,56 @@ Do not fake test results. If something cannot run, explain exactly why and what 
 If allowed to commit:
 
 - keep commits logical
+- stage every meaningful feature/change as its own commit
+- do not make one giant overnight commit
+- commit docs separately from implementation unless tightly coupled
+- commit tests with the feature they validate when practical
+- commit generated helper tools separately
+- commit GitHub/CI metadata separately
 - do not commit local DB files
 - do not commit exported vault output
 - do not commit secrets
 - do not rewrite history unless instructed
 - run tests before final commit
 - use conventional commit messages
+- push only to `https://github.com/AdityaVG13/TwitterOrganizer.git`
+- verify `git remote -v` before pushing
+
+If GitHub CLI or push tooling is unavailable:
+
+1. Inspect `/Users/Aditya/AI/MiniMax/tools`.
+2. Look for any existing commit/push/GitHub helper.
+3. If none exists, build `tools/git_commit_push.py`.
+4. The helper must:
+   - show `git status --short`
+   - accept explicit file paths
+   - reject `git add .` by default
+   - create conventional commits
+   - verify remote URL is `https://github.com/AdityaVG13/TwitterOrganizer.git`
+   - push current branch
+   - write a commit log to `docs/BUILD_LOG.md`
+5. Use the helper for the rest of the run if it works.
+
+Commit granularity target:
+
+- one commit per subsystem or coherent behavior change
+- no commit should mix unrelated backend, UI, docs, and compression work
+- avoid commits larger than necessary
+- if a commit gets too broad, split it before pushing
+- if tests are fixed after a feature commit, add a follow-up `fix:` or `test:` commit
+
+Example staging:
+
+```bash
+git add src/tweetkb/migrations.py tests/test_migrations.py docs/DATA_MODEL.md
+git commit -m "feat: add sqlite migrations"
+
+git add src/tweetkb/entities.py tests/test_entities.py
+git commit -m "feat: extract bookmark entities"
+
+git add zig/build.zig zig/src/tweetzip.zig src/tweetkb/compress.py tests/test_compress.py
+git commit -m "feat: add tweetzip compression"
+```
 
 Suggested commit flow:
 
