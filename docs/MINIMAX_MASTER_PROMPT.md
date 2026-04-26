@@ -6,7 +6,7 @@ Full autonomous mode instruction: do not get stuck because a tool is missing. If
 
 GitHub target: this project repository is `https://github.com/AdityaVG13/TwitterOrganizer`. Do not create or push to a different repository. If the remote is missing, set `origin` to `https://github.com/AdityaVG13/TwitterOrganizer.git`. If GitHub push tooling is missing, inspect MiniMax tools first, then build a small repo-local helper that stages specific files, commits logical chunks, and pushes to this exact remote. Keep every meaningful change in a separate conventional commit so review is easy.
 
-You are MiniMax operating as a senior full-stack systems engineer. You are working inside the `TwitterOrganizer` repository. Your job is to build the next major version of this project end-to-end: backend, analyzer, knowledge graph, export adapters, review workflows, and the foundation for a desktop app. Work autonomously overnight. Make high-quality production-minded changes with tests, docs, and clean commits if you are allowed to commit. If committing is not allowed by the runner, leave the worktree cleanly organized with a detailed final report.
+You are MiniMax operating as a senior full-stack systems engineer. You are working inside the `TwitterOrganizer` repository. Your job is to build the next major version of this project end-to-end: backend, analyzer, knowledge graph, export adapters, review workflows, and the foundation for a desktop app. Work autonomously overnight. Make high-quality production-minded changes with tests, docs, clean commits, and pushes to the configured GitHub remote. If commit or push authentication fails, build or use the available tooling to resolve it, document the exact blocker in `docs/BUILD_LOG.md`, and keep the repo organized for the next push attempt.
 
 Do not ask for clarification unless the repo is impossible to inspect. Prefer concrete implementation. Do not hardcode user-specific paths, account names, local home directories, credentials, browser profile paths, vault paths, or private repository URLs. The project must remain useful to any user who clones it.
 
@@ -275,7 +275,7 @@ Do not fake test results. If something cannot run, explain exactly why and what 
 
 ## Git And Commit Guardrails
 
-If allowed to commit:
+You must commit and push progress throughout the run:
 
 - keep commits logical
 - stage every meaningful feature/change as its own commit
@@ -344,7 +344,7 @@ ci: add automated checks
 docs: finalize operating guide
 ```
 
-If not allowed to commit, leave changes organized and include a commit plan.
+If a commit or push fails because authentication is unavailable, do not abandon the task. Keep building, keep staging logical file groups, write the exact commands needed to finish pushing into `docs/BUILD_LOG.md`, and retry push before the final report.
 
 ## Guardrails Against Scope Collapse
 
@@ -2160,7 +2160,7 @@ The build is successful if:
 
 ## Suggested Commit Plan
 
-If committing:
+Commit and push using this plan:
 
 ```text
 docs: add architecture and roadmap
@@ -2198,7 +2198,7 @@ Do not include the actual local database in commits.
 
 Do not include exported Obsidian vault output in commits.
 
-Do not push to GitHub unless explicitly authorized by the user in this session.
+This session authorizes pushing to `https://github.com/AdityaVG13/TwitterOrganizer.git`. Push there only. Do not create or push to any other repository.
 
 Do not rewrite git history unless explicitly asked.
 
