@@ -15,6 +15,9 @@ from .server import ReviewServer
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="tweetkb")
     parser.add_argument("--db", type=Path, default=DEFAULT_DB)
+    parser.add_argument("--browser-app", default=None, help="macOS browser app name for Apple Events, default: Google Chrome.")
+    parser.add_argument("--browser-profile", type=Path, default=None, help="Browser profile directory containing DevToolsActivePort.")
+    parser.add_argument("--debug-port", type=int, default=None, help="Browser remote debugging port, default: 9222.")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("init")
@@ -63,6 +66,13 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     store = Store(args.db)
+    collector = BrowserHarnessCollector(
+        store,
+        Checkpoint(),
+        browser_app=args.browser_app or "Google Chrome",
+        browser_profile=args.browser_profile or Path.home() / "Library/Application Support/Google/Chrome",
+        debug_port=args.debug_port or 9222,
+    )
     try:
         if args.cmd == "init":
             store.init()
@@ -70,14 +80,14 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         store.init()
         if args.cmd == "chrome-debug":
-            BrowserHarnessCollector(store).start_normal_chrome_debug()
+            collector.start_normal_chrome_debug()
             print("Chrome restarted with remote debugging. Log into X if needed, then run `uv run tweetkb collect --normal-chrome --existing-tab`.")
             return 0
         if args.cmd == "login":
-            BrowserHarnessCollector(store).open_login(normal_chrome=args.normal_chrome)
+            collector.open_login(normal_chrome=args.normal_chrome)
             return 0
         if args.cmd == "collect":
-            result = BrowserHarnessCollector(store, Checkpoint()).collect(
+            result = collector.collect(
                 args.limit,
                 args.batch_size,
                 args.wait,

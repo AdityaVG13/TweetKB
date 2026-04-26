@@ -15,8 +15,12 @@ from .db import Store
 from .util import extract_status_id
 
 BOOKMARKS_URL = "https://x.com/i/bookmarks"
-NORMAL_CHROME_PROFILE = Path.home() / "Library/Application Support/Google/Chrome"
-NORMAL_CHROME_DEBUG_PORT = 9222
+DEFAULT_BROWSER_APP = os.environ.get("TWEETKB_BROWSER_APP", "Google Chrome")
+DEFAULT_BROWSER_PROFILE = Path(
+    os.environ.get("TWEETKB_BROWSER_PROFILE", str(Path.home() / "Library/Application Support/Google/Chrome"))
+)
+DEFAULT_BROWSER_DEBUG_PORT = int(os.environ.get("TWEETKB_BROWSER_DEBUG_PORT", "9222"))
+BROWSER_HARNESS_PROFILE = Path.home() / ".browser-harness/chrome-profiles/default"
 
 
 @dataclass
@@ -36,10 +40,21 @@ class CollectResult:
 
 
 class BrowserHarnessCollector:
-    def __init__(self, store: Store, checkpoint: Checkpoint | None = None, executable: str = "browser-harness"):
+    def __init__(
+        self,
+        store: Store,
+        checkpoint: Checkpoint | None = None,
+        executable: str = "browser-harness",
+        browser_app: str = DEFAULT_BROWSER_APP,
+        browser_profile: Path = DEFAULT_BROWSER_PROFILE,
+        debug_port: int = DEFAULT_BROWSER_DEBUG_PORT,
+    ):
         self.store = store
         self.checkpoint = checkpoint or Checkpoint()
         self.executable = executable
+        self.browser_app = browser_app
+        self.browser_profile = browser_profile
+        self.debug_port = debug_port
 
     def ensure_available(self) -> None:
         if not shutil.which(self.executable):
@@ -48,12 +63,17 @@ class BrowserHarnessCollector:
     def open_login(self, normal_chrome: bool = False) -> None:
         self.ensure_available()
         if normal_chrome:
-            subprocess.run(["open", "-a", "Google Chrome", BOOKMARKS_URL], check=True)
+            subprocess.run(["open", "-a", self.browser_app, BOOKMARKS_URL], check=True)
         else:
             subprocess.run([self.executable, "--launch-local", BOOKMARKS_URL], check=True)
 
     def start_normal_chrome_debug(self, open_bookmarks: bool = True) -> None:
-        start_normal_chrome_debug(open_bookmarks=open_bookmarks)
+        start_normal_chrome_debug(
+            open_bookmarks=open_bookmarks,
+            browser_app=self.browser_app,
+            browser_profile=self.browser_profile,
+            debug_port=self.debug_port,
+        )
 
     def collect(
         self,
@@ -82,7 +102,10 @@ class BrowserHarnessCollector:
         )
         env = os.environ.copy()
         if normal_chrome and "BU_CDP_WS" not in env:
-            env["BU_CDP_WS"] = find_normal_chrome_cdp_ws()
+            env["BU_CDP_WS"] = find_normal_chrome_cdp_ws(
+                profile_root=self.browser_profile,
+                debug_port=self.debug_port,
+            )
         proc = subprocess.run(
             [self.executable],
             input=script,
@@ -164,7 +187,7 @@ class BrowserHarnessCollector:
           set stagnant to 0
           set previousCount to 0
           set metrics to "{{}}"
-          tell application "Google Chrome"
+          tell application {json.dumps(self.browser_app)}
             if not (exists front window) then error "No Chrome window is open"
             tell active tab of front window
               repeat while batches < {max_batches}
@@ -327,8 +350,11 @@ class BrowserHarnessCollector:
         )
 
 
-def find_normal_chrome_cdp_ws(profile_root: Path = NORMAL_CHROME_PROFILE) -> str:
-    fixed_ws = find_cdp_ws_on_port(NORMAL_CHROME_DEBUG_PORT)
+def find_normal_chrome_cdp_ws(
+    profile_root: Path = DEFAULT_BROWSER_PROFILE,
+    debug_port: int = DEFAULT_BROWSER_DEBUG_PORT,
+) -> str:
+    fixed_ws = find_cdp_ws_on_port(debug_port)
     if fixed_ws:
         return fixed_ws
     port_file = profile_root / "DevToolsActivePort"
@@ -343,7 +369,7 @@ def find_normal_chrome_cdp_ws(profile_root: Path = NORMAL_CHROME_PROFILE) -> str
     if not normal_chrome_has_debugging_flag():
         raise RuntimeError(
             "Normal Chrome is not running with remote debugging. Quit Chrome, then start it with:\n"
-            f"open -na 'Google Chrome' --args --remote-debugging-port={NORMAL_CHROME_DEBUG_PORT} --remote-allow-origins='*'\n"
+            f"open -na '{DEFAULT_BROWSER_APP}' --args --remote-debugging-port={debug_port} --remote-allow-origins='*'\n"
             "Then open https://x.com/i/bookmarks and rerun collection."
         )
     port = int(lines[0])
@@ -370,7 +396,7 @@ def find_cdp_ws_on_port(port: int) -> str | None:
     return ws if isinstance(ws, str) and ws.startswith("ws://") else None
 
 
-def normal_chrome_has_debugging_flag() -> bool:
+def normal_chrome_has_debugging_flag(browser_app: str = DEFAULT_BROWSER_APP) -> bool:
     try:
         proc = subprocess.run(
             ["ps", "axo", "command"],
@@ -382,7 +408,7 @@ def normal_chrome_has_debugging_flag() -> bool:
     except Exception:
         return True
     for line in proc.stdout.splitlines():
-        if "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" not in line:
+        if f"/Applications/{browser_app}.app/Contents/MacOS/" not in line:
             continue
         if ".browser-harness/chrome-profiles" in line:
             continue
@@ -399,10 +425,15 @@ def is_port_open(host: str, port: int, timeout: float = 0.5) -> bool:
         return False
 
 
-def start_normal_chrome_debug(open_bookmarks: bool = True) -> None:
+def start_normal_chrome_debug(
+    open_bookmarks: bool = True,
+    browser_app: str = DEFAULT_BROWSER_APP,
+    browser_profile: Path = DEFAULT_BROWSER_PROFILE,
+    debug_port: int = DEFAULT_BROWSER_DEBUG_PORT,
+) -> None:
     for path in (
-        NORMAL_CHROME_PROFILE / "DevToolsActivePort",
-        Path.home() / ".browser-harness/chrome-profiles/default/DevToolsActivePort",
+        browser_profile / "DevToolsActivePort",
+        BROWSER_HARNESS_PROFILE / "DevToolsActivePort",
     ):
         try:
             path.unlink()
@@ -411,7 +442,7 @@ def start_normal_chrome_debug(open_bookmarks: bool = True) -> None:
         except OSError:
             pass
     subprocess.run(
-        ["osascript", "-e", 'tell application "Google Chrome" to quit'],
+        ["osascript", "-e", f'tell application {json.dumps(browser_app)} to quit'],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         check=False,
@@ -420,9 +451,9 @@ def start_normal_chrome_debug(open_bookmarks: bool = True) -> None:
         [
             "open",
             "-na",
-            "Google Chrome",
+            browser_app,
             "--args",
-            f"--remote-debugging-port={NORMAL_CHROME_DEBUG_PORT}",
+            f"--remote-debugging-port={debug_port}",
             "--remote-allow-origins=*",
         ],
         check=True,
@@ -432,9 +463,9 @@ def start_normal_chrome_debug(open_bookmarks: bool = True) -> None:
             [
                 "osascript",
                 "-e",
-                'tell application "Google Chrome" to activate',
+                f'tell application {json.dumps(browser_app)} to activate',
                 "-e",
-                f'tell application "Google Chrome" to open location "{BOOKMARKS_URL}"',
+                f'tell application {json.dumps(browser_app)} to open location "{BOOKMARKS_URL}"',
             ],
             check=False,
         )

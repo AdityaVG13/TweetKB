@@ -69,8 +69,8 @@ uv run tweetkb export --vault ./obsidian-vault --exclude-review
 
 ## Files
 
-- SQLite DB: `./data/bookmarks.sqlite3`
-- Checkpoint: `./data/checkpoint.json`
+- SQLite DB: `./data/bookmarks.sqlite3` by default, override with `--db /path/to/bookmarks.sqlite3`.
+- Checkpoint: `./data/checkpoint.json`.
 - Obsidian export: configured with `--vault`
 
 ## Live Collection Notes
@@ -82,6 +82,22 @@ The collector uses the installed `browser-harness` executable and the managed Ch
 ```
 
 If X shows a login wall, finish login manually in that Chrome window and rerun `collect`.
+
+No user-specific filesystem paths are required. Defaults are resolved from the current working directory or the current user's home directory.
+
+macOS browser automation defaults:
+
+- Browser app: `Google Chrome`
+- Browser profile: `~/Library/Application Support/Google/Chrome`
+- Remote debugging port: `9222`
+
+Override them when needed:
+
+```bash
+uv run tweetkb --browser-app "Google Chrome Beta" collect --apple-events --all
+uv run tweetkb --browser-profile "$HOME/Library/Application Support/Google/Chrome/Profile 2" collect --normal-chrome --existing-tab
+uv run tweetkb --debug-port 9333 chrome-debug
+```
 
 If you already have X bookmarks open in Chrome and do not want the collector to open a new tab:
 
