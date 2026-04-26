@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import re
 from collections import Counter
 from datetime import datetime, timezone
+from typing import Any
 
 from .util import slugify
 

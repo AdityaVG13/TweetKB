@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from .migrations import migrate, SCHEMA_VERSION
+from .migrations import migrate
 from .util import ensure_dir, extract_status_id, normalize_status_url, stable_hash
 
 DEFAULT_DB = Path("data/bookmarks.sqlite3")

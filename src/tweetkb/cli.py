@@ -3,13 +3,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import uuid
 from pathlib import Path
 
 from .checkpoint import Checkpoint
 from .collector import BrowserHarnessCollector
 from .config import load_config
-from .db import DEFAULT_DB, Store
+from .db import DEFAULT_DB
 from .db import Store as DBStore
 from .exporters import ADAPTERS
 from .exporters.obsidian import export_obsidian
@@ -17,7 +16,7 @@ from .exporters.logseq import export_logseq
 from .exporters.markdown import export_markdown
 from .exporters.jsonl import export_jsonl
 from .exporters.csv import export_csv
-from .graph import build_graph, export_graph_json
+from .graph import export_graph_json
 from .server import ReviewServer
 
 
@@ -114,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
     # compress
     compress = sub.add_parser("compress", help="TweetZip compression")
     compress_sub = compress.add_subparsers(dest="compress_cmd", required=True)
-    compress_bench = compress_sub.add_parser("benchmark", help="Benchmark compression")
+    compress_sub.add_parser("benchmark", help="Benchmark compression")
     compress_export = compress_sub.add_parser("export", help="Export DB to TweetZip")
     compress_export.add_argument("--out", "-o", type=Path, required=True)
     compress_export.add_argument("--engine", default="python", choices=["python", "zig"])
@@ -127,7 +126,7 @@ def main(argv: list[str] | None = None) -> int:
     compress_verify.add_argument("input", type=Path)
 
     # doctor
-    doctor = sub.add_parser("doctor", help="Diagnose system health")
+    sub.add_parser("doctor", help="Diagnose system health")
 
     # benchmark
     bench = sub.add_parser("benchmark", help="Run performance benchmarks")
@@ -482,7 +481,7 @@ def _cmd_review(args, store) -> int:
 
 def _cmd_compress(args, store) -> int:
     from .compress import (
-        encode_records, decode_records, inspect_archive,
+        inspect_archive,
         encode_file, decode_file, verify_archive,
     )
 
@@ -502,7 +501,8 @@ def _cmd_compress(args, store) -> int:
                 "raw_text": row["raw_text"],
             })
 
-        import tempfile, json
+        import tempfile
+        import json
         with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False, mode="w") as f:
             for r in records:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
@@ -628,7 +628,6 @@ def _cmd_benchmark(args, store) -> int:
 
     if args.stage in ("all", "compress"):
         from .compress import encode_records, decode_records
-        import json
         records = [{"status_id": str(r["status_id"]), "tweet_text": r["tweet_text"] or ""}
                    for r in store.list_bookmarks()]
         if records:

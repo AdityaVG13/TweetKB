@@ -3,7 +3,6 @@ from __future__ import annotations
 import math
 import os
 import re
-from pathlib import Path
 
 WORD_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9_+-]{1,}")
 
@@ -78,8 +77,6 @@ def embed_text(
     """Embed text using specified provider. Returns (vector, provider, model)."""
     if provider not in PROVIDERS:
         provider = "local-hash"
-
-    fn = PROVIDERS[provider]
 
     if provider == "local-hash":
         return embed_text_local_hash(text, dims), "local-hash", "hash-v1"

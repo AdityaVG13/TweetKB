@@ -121,7 +121,6 @@ def _render_note(store, row, classifs) -> str:
     links = store.get_bookmark_links(bookmark_id)
     entities = store.get_bookmark_entities(bookmark_id)
     tags = store.get_bookmark_tags(bookmark_id)
-    primary_cat = next((c["category_slug"] for c in classifs if c["is_primary"]), "misc")
 
     frontmatter = {
         "type": "tweet-bookmark",

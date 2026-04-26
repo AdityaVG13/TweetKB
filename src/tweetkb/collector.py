@@ -240,7 +240,7 @@ class BrowserHarnessCollector:
     def _browser_script(self, limit: int, batch_size: int, wait_seconds: float, existing_tab: bool) -> str:
         extractor_js = self._extractor_js()
         return textwrap.dedent(
-            f"""
+            """
 @@SCRIPT_BODY@@
             """
         ).replace("@@SCRIPT_BODY@@", self._browser_script_body(limit, batch_size, wait_seconds, existing_tab, extractor_js))

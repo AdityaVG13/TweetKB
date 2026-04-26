@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from ..util import ensure_dir, slugify
@@ -61,7 +60,6 @@ def _render_page(store, row, classifs) -> str:
     links = store.get_bookmark_links(bookmark_id)
     entities = store.get_bookmark_entities(bookmark_id)
     tags = store.get_bookmark_tags(bookmark_id)
-    primary_cat = next((c["category_slug"] for c in classifs if c["is_primary"]), "misc")
     cat_labels = {
         "ai-agents": "AI Agents",
         "coding": "Coding",
@@ -73,7 +71,7 @@ def _render_page(store, row, classifs) -> str:
     cat_str = ", ".join(f"[[{cat_labels.get(c['category_slug'], c['category_slug'])}]]" for c in classifs)
 
     lines = [
-        f"- type:: tweet-bookmark",
+        "- type:: tweet-bookmark",
         f"- status-id:: {row['status_id']}",
         f"- source:: {row['status_url']}",
         f"- author:: [[{row['author_handle'] or row['author_name']}]]",
@@ -108,7 +106,7 @@ def _render_page(store, row, classifs) -> str:
         lines.append("")
 
     if tags:
-        lines.append(f"## Tags")
+        lines.append("## Tags")
         lines.append(", ".join(f"#{t}" for t in tags))
         lines.append("")
 

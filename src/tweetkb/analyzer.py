@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
-from .classifier import classify_text, embed_text as embed_text_local
-from .entities import extract_entities, detect_entity_type
+from .classifier import classify_text
+from .entities import extract_entities
 from .embeddings import embed_text
 
 
@@ -77,7 +74,6 @@ def run_analysis(
     changed_only: bool = True,
 ) -> dict[str, Any]:
     """Run analysis pipeline on bookmarks."""
-    now = datetime.now(timezone.utc).isoformat()
     stages = ["classify", "entities", "embed", "summaries"]
     if stage not in stages and stage != "all":
         stages = [stage]
@@ -116,7 +112,6 @@ def run_analysis(
             links_rows = store.get_bookmark_links(bookmark_id)
             links = [r["url"] for r in links_rows]
             entity_tuples = extract_entities(text, links)
-            entity_names = [e[0] for e in entity_tuples]
             for name, etype, source in entity_tuples:
                 entity_id = store.upsert_entity(name, etype, source)
                 if entity_id:

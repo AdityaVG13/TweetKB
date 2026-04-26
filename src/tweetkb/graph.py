@@ -4,7 +4,6 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-from .util import slugify
 
 
 def build_graph(store) -> dict:
