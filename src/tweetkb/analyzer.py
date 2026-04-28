@@ -3,8 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from .classifier import classify_text
+from .enricher import enriched_text_for_analysis
 from .entities import extract_entities
 from .embeddings import embed_text
+from .util import stable_hash
 
 
 def analyze_bookmark(
@@ -16,6 +18,8 @@ def analyze_bookmark(
     """Analyze a single bookmark: classify, extract entities, embed."""
     bookmark_id = int(bookmark_row["id"])
     text = "\n".join([bookmark_row["tweet_text"] or "", bookmark_row["raw_text"] or ""])
+    text = enriched_text_for_analysis(store, bookmark_id, text)
+    analysis_hash = stable_hash(text)
 
     # Get links from DB
     links_rows = store.get_bookmark_links(bookmark_id)
@@ -44,7 +48,7 @@ def analyze_bookmark(
             store.add_bookmark_entity(bookmark_id, entity_id, salience=0.5, evidence=text[:200])
 
     # Update DB: embedding
-    store.set_embedding(bookmark_id, vector, embed_provider, embed_model, bookmark_row["content_hash"])
+    store.set_embedding(bookmark_id, vector, embed_provider, embed_model, analysis_hash)
 
     # Update DB: summary/analysis
     store.update_bookmark_analysis(
@@ -83,12 +87,21 @@ def run_analysis(
     entities_added = 0
     embedded = 0
 
-    bookmarks = store.list_bookmarks_for_analysis(changed_only=changed_only)
-    total = len(bookmarks)
+    bookmarks = store.list_bookmarks_for_analysis(changed_only=False)
 
     for row in bookmarks:
         bookmark_id = int(row["id"])
         text = "\n".join([row["tweet_text"] or "", row["raw_text"] or ""])
+        text = enriched_text_for_analysis(store, bookmark_id, text)
+        analysis_hash = stable_hash(text)
+        if changed_only:
+            existing_embedding = store.conn.execute(
+                "SELECT content_hash FROM embeddings WHERE bookmark_id = ? AND provider = ? ORDER BY updated_at DESC LIMIT 1",
+                (bookmark_id, provider),
+            ).fetchone()
+            if existing_embedding and existing_embedding["content_hash"] == analysis_hash:
+                continue
+        total += 1
 
         if "all" in stages or "classify" in stages:
             links_rows = store.get_bookmark_links(bookmark_id)
@@ -120,7 +133,7 @@ def run_analysis(
 
         if "all" in stages or "embed" in stages:
             vector, embed_provider, embed_model = embed_text(text, provider=provider)
-            store.set_embedding(bookmark_id, vector, embed_provider, embed_model, row["content_hash"])
+            store.set_embedding(bookmark_id, vector, embed_provider, embed_model, analysis_hash)
             embedded += 1
 
     return {

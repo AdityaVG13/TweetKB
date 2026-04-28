@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime, timezone
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Schema v1: legacy single-table with JSON columns
 SCHEMA_V1 = """
@@ -278,6 +278,28 @@ CREATE TABLE IF NOT EXISTS collection_runs (
   metadata_json TEXT NOT NULL DEFAULT '{}'
 );
 
+CREATE TABLE IF NOT EXISTS content_enrichments (
+  id INTEGER PRIMARY KEY,
+  bookmark_id INTEGER NOT NULL,
+  source_url TEXT NOT NULL,
+  source_type TEXT NOT NULL DEFAULT 'x-status',
+  title TEXT NOT NULL DEFAULT '',
+  content_text TEXT NOT NULL DEFAULT '',
+  content_hash TEXT NOT NULL DEFAULT '',
+  captured_at TEXT NOT NULL DEFAULT (datetime('now')),
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  UNIQUE(bookmark_id, source_url)
+);
+
+CREATE TABLE IF NOT EXISTS processing_events (
+  id INTEGER PRIMARY KEY,
+  bookmark_id INTEGER,
+  event_type TEXT NOT NULL,
+  message TEXT NOT NULL DEFAULT '',
+  payload_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS schema_migrations (
   version INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
@@ -319,6 +341,7 @@ CREATE INDEX IF NOT EXISTS idx_bookmark_entities_bookmark ON bookmark_entities(b
 CREATE INDEX IF NOT EXISTS idx_bookmark_entities_entity ON bookmark_entities(entity_id);
 CREATE INDEX IF NOT EXISTS idx_cluster_members_cluster ON cluster_members(cluster_id);
 CREATE INDEX IF NOT EXISTS idx_cluster_members_bookmark ON cluster_members(bookmark_id);
+CREATE INDEX IF NOT EXISTS idx_content_enrichments_bookmark ON content_enrichments(bookmark_id);
 """
 
 # Seed data for v2
@@ -415,26 +438,97 @@ def apply_migration(conn: sqlite3.Connection, version: int, name: str) -> None:
     conn.commit()
 
 
+def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
+    return conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (name,),
+    ).fetchone() is not None
+
+
+def _table_columns(conn: sqlite3.Connection, name: str) -> list[str]:
+    if not _table_exists(conn, name):
+        return []
+    return [r["name"] for r in conn.execute(f"PRAGMA table_info({name})").fetchall()]
+
+
+def _drop_legacy_v1_objects(conn: sqlite3.Connection) -> None:
+    """Remove legacy single-table objects after their rows are loaded."""
+    conn.executescript(
+        """
+        DROP TRIGGER IF EXISTS bookmarks_ai;
+        DROP TRIGGER IF EXISTS bookmarks_ad;
+        DROP TRIGGER IF EXISTS bookmarks_au;
+        DROP TABLE IF EXISTS bookmarks_fts;
+        DROP TABLE IF EXISTS bookmark_tags;
+        DROP TABLE IF EXISTS embeddings;
+        DROP TABLE IF EXISTS tags;
+        DROP TABLE IF EXISTS processing_events;
+        DROP TABLE IF EXISTS bookmarks;
+        """
+    )
+
+
+def repair_v2(conn: sqlite3.Connection) -> None:
+    """Create missing v2 support tables and repair partially migrated v2 DBs."""
+    if _table_exists(conn, "bookmarks") and "category" not in _table_columns(conn, "bookmarks"):
+        cols = set(_table_columns(conn, "bookmarks"))
+        additions = {
+            "author_id": "INTEGER",
+            "content_hash": "TEXT NOT NULL DEFAULT ''",
+            "collection_source": "TEXT NOT NULL DEFAULT 'browser'",
+            "collection_run_id": "TEXT",
+            "is_archived": "INTEGER NOT NULL DEFAULT 0",
+            "is_deleted": "INTEGER NOT NULL DEFAULT 0",
+            "is_exportable": "INTEGER NOT NULL DEFAULT 1",
+            "needs_review": "INTEGER NOT NULL DEFAULT 1",
+            "review_note": "TEXT NOT NULL DEFAULT ''",
+            "review_state": "TEXT NOT NULL DEFAULT 'new'",
+            "summary": "TEXT NOT NULL DEFAULT ''",
+            "why_it_matters": "TEXT NOT NULL DEFAULT ''",
+        }
+        for col, ddl in additions.items():
+            if col not in cols:
+                conn.execute(f"ALTER TABLE bookmarks ADD COLUMN {col} {ddl}")
+
+    conn.executescript(SCHEMA_V2)
+    conn.executemany(
+        "INSERT OR IGNORE INTO categories(slug, label, description, export_default, review_default) VALUES (?, ?, ?, ?, ?)",
+        CATEGORY_SEED,
+    )
+    conn.commit()
+
+
 def migrate_to_v2(conn: sqlite3.Connection) -> None:
     """Migrate from v1 schema to v2 normalized schema."""
     # Check if already migrated
     if get_schema_version(conn) >= 2:
+        repair_v2(conn)
         return
 
     # Check if v1 bookmarks table exists
-    v1_exists = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='bookmarks'"
-    ).fetchone() is not None
+    v1_exists = _table_exists(conn, "bookmarks")
+    v1_columns = _table_columns(conn, "bookmarks")
+    legacy_v1 = "category" in v1_columns
 
     now = datetime.now(timezone.utc).isoformat()
 
-    if v1_exists:
+    tag_names_by_id: dict[int, str] = {}
+    tag_ids_by_bookmark: dict[int, list[int]] = {}
+
+    if v1_exists and legacy_v1:
         # Migrate existing bookmarks data
         rows = conn.execute("SELECT * FROM bookmarks").fetchall()
         row_dicts = [dict(r) for r in rows]
 
         # Get existing tags
         existing_tags = {r["name"]: r["id"] for r in conn.execute("SELECT id, name FROM tags").fetchall()}
+        tag_names_by_id = {int(r["id"]): r["name"] for r in conn.execute("SELECT id, name FROM tags").fetchall()}
+        tag_ids_by_bookmark = {}
+        if _table_exists(conn, "bookmark_tags"):
+            for tag_row in conn.execute("SELECT bookmark_id, tag_id FROM bookmark_tags").fetchall():
+                tag_ids_by_bookmark.setdefault(int(tag_row["bookmark_id"]), []).append(int(tag_row["tag_id"]))
+
+        _drop_legacy_v1_objects(conn)
     else:
         row_dicts = []
         existing_tags = {}
@@ -447,6 +541,13 @@ def migrate_to_v2(conn: sqlite3.Connection) -> None:
         "INSERT OR IGNORE INTO categories(slug, label, description, export_default, review_default) VALUES (?, ?, ?, ?, ?)",
         CATEGORY_SEED,
     )
+
+    # Migrate existing tags before bookmark tag relationships are restored.
+    for tag_name in existing_tags:
+        conn.execute(
+            "INSERT OR IGNORE INTO tags(name) VALUES (?)",
+            (tag_name,),
+        )
 
     # Migrate bookmarks
     author_map: dict[str, int] = {}
@@ -473,6 +574,7 @@ def migrate_to_v2(conn: sqlite3.Connection) -> None:
         created_at = row.get("created_at") or ""
         content_hash = row.get("content_hash") or ""
         status_url = row.get("status_url") or f"https://x.com/{author_handle}/status/{status_id}"
+        old_bookmark_id = int(row.get("id") or 0)
 
         # Upsert author
         author_id: int | None = None
@@ -581,6 +683,18 @@ def migrate_to_v2(conn: sqlite3.Connection) -> None:
                 (bookmark_id, entity_id, 0.5),
             )
 
+        # Migrate tag relationships.
+        for tag_id in tag_ids_by_bookmark.get(old_bookmark_id, []):
+            tag_name = tag_names_by_id.get(tag_id)
+            if not tag_name:
+                continue
+            tag_row = conn.execute("SELECT id FROM tags WHERE name = ?", (tag_name,)).fetchone()
+            if tag_row:
+                conn.execute(
+                    "INSERT OR IGNORE INTO bookmark_tags(bookmark_id, tag_id) VALUES (?, ?)",
+                    (bookmark_id, int(tag_row["id"])),
+                )
+
         # Migrate primary classification
         if category:
             conn.execute(
@@ -590,17 +704,11 @@ def migrate_to_v2(conn: sqlite3.Connection) -> None:
                 (bookmark_id, category, confidence, "keyword", "migrated from v1", 1, now),
             )
 
-    # Migrate existing tags
-    for tag_name, tag_id in existing_tags.items():
-        conn.execute(
-            "INSERT OR IGNORE INTO tags(name) VALUES (?)",
-            (tag_name,),
-        )
-
     # Rebuild FTS
     conn.execute("INSERT INTO bookmarks_fts(bookmarks_fts) VALUES('rebuild')")
 
     apply_migration(conn, 2, "normalize schema to v2")
+    repair_v2(conn)
     conn.commit()
 
 
@@ -611,7 +719,17 @@ def init_fresh(conn: sqlite3.Connection) -> None:
         "INSERT OR IGNORE INTO categories(slug, label, description, export_default, review_default) VALUES (?, ?, ?, ?, ?)",
         CATEGORY_SEED,
     )
-    apply_migration(conn, 2, "fresh init v2")
+    apply_migration(conn, SCHEMA_VERSION, "fresh init v3")
+    conn.commit()
+
+
+def migrate_to_v3(conn: sqlite3.Connection) -> None:
+    """Add durable full-content enrichment storage."""
+    if get_schema_version(conn) >= 3:
+        repair_v2(conn)
+        return
+    repair_v2(conn)
+    apply_migration(conn, 3, "add content enrichments")
     conn.commit()
 
 
@@ -636,3 +754,6 @@ def migrate(conn: sqlite3.Connection) -> None:
             return
     if version < 2:
         migrate_to_v2(conn)
+    if get_schema_version(conn) < 3:
+        migrate_to_v3(conn)
+    repair_v2(conn)

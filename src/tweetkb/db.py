@@ -204,6 +204,105 @@ class Store:
         )
         self.conn.commit()
 
+    def set_content_enrichment(
+        self,
+        bookmark_id: int,
+        source_url: str,
+        content_text: str,
+        source_type: str = "x-status",
+        title: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> bool:
+        content_text = (content_text or "").strip()
+        if not content_text:
+            return False
+        content_hash = stable_hash("\n".join([source_url, source_type, title, content_text]))
+        now = datetime.now(timezone.utc).isoformat()
+        self.conn.execute(
+            """INSERT INTO content_enrichments
+               (bookmark_id, source_url, source_type, title, content_text, content_hash, captured_at, metadata_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(bookmark_id, source_url) DO UPDATE SET
+                 source_type=excluded.source_type,
+                 title=excluded.title,
+                 content_text=excluded.content_text,
+                 content_hash=excluded.content_hash,
+                 captured_at=excluded.captured_at,
+                 metadata_json=excluded.metadata_json""",
+            (
+                bookmark_id,
+                source_url,
+                source_type,
+                title,
+                content_text,
+                content_hash,
+                now,
+                json.dumps(metadata or {}, ensure_ascii=True, sort_keys=True),
+            ),
+        )
+        self.conn.commit()
+        return True
+
+    def get_content_enrichment(self, bookmark_id: int) -> sqlite3.Row | None:
+        return self.conn.execute(
+            """SELECT * FROM content_enrichments
+               WHERE bookmark_id = ?
+               ORDER BY
+                 CASE source_type
+                   WHEN 'x-article' THEN 0
+                   WHEN 'x-status' THEN 1
+                   ELSE 2
+                 END,
+                 captured_at DESC
+               LIMIT 1""",
+            (bookmark_id,),
+        ).fetchone()
+
+    def get_content_enrichments(self, bookmark_id: int) -> list[sqlite3.Row]:
+        return list(
+            self.conn.execute(
+                """SELECT * FROM content_enrichments
+                   WHERE bookmark_id = ?
+                   ORDER BY
+                     CASE source_type
+                       WHEN 'x-article' THEN 0
+                       WHEN 'x-status' THEN 1
+                       ELSE 2
+                     END,
+                     captured_at DESC""",
+                (bookmark_id,),
+            )
+        )
+
+    def list_bookmarks_for_enrichment(
+        self,
+        category: str | None = None,
+        since: str | None = None,
+        limit: int | None = None,
+        missing_only: bool = True,
+    ) -> list[sqlite3.Row]:
+        params: list[Any] = []
+        joins = []
+        where = ["b.is_deleted = 0"]
+        if category:
+            joins.append("JOIN classifications cl ON cl.bookmark_id = b.id AND cl.is_primary = 1")
+            where.append("cl.category_slug = ?")
+            params.append(category)
+        if since:
+            where.append("date(b.captured_at) >= date(?)")
+            params.append(since)
+        if missing_only:
+            joins.append("LEFT JOIN content_enrichments ce ON ce.bookmark_id = b.id")
+            where.append("ce.id IS NULL")
+
+        sql = "SELECT DISTINCT b.* FROM bookmarks b " + " ".join(joins)
+        sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY b.captured_at DESC, b.id DESC"
+        if limit:
+            sql += " LIMIT ?"
+            params.append(limit)
+        return list(self.conn.execute(sql, params))
+
     def set_classifications(
         self,
         bookmark_id: int,
@@ -440,12 +539,12 @@ class Store:
     def get_top_authors(self, limit: int = 20) -> list[sqlite3.Row]:
         return list(
             self.conn.execute(
-                """SELECT a.*, COUNT(b.id) as bookmark_count
+                """SELECT a.*, COUNT(b.id) as actual_bookmark_count
                    FROM authors a
                    JOIN bookmarks b ON b.author_id = a.id
                    WHERE b.is_deleted = 0
                    GROUP BY a.id
-                   ORDER BY bookmark_count DESC
+                   ORDER BY actual_bookmark_count DESC
                    LIMIT ?""",
                 (limit,),
             )
@@ -496,7 +595,7 @@ class Store:
             "clusters": clusters,
             "categories": {r["slug"]: {"label": r["label"], "count": r["count"]} for r in cats},
             "top_entities": [{"name": r["name"], "type": r["type"], "mentions": r["mention_count"]} for r in entities],
-            "top_authors": [{"handle": r["handle"], "display_name": r["display_name"], "count": r["bookmark_count"]} for r in authors],
+            "top_authors": [{"handle": r["handle"], "display_name": r["display_name"], "count": r["actual_bookmark_count"]} for r in authors],
             "top_domains": [{"domain": r["domain"], "count": r["link_count"]} for r in domains],
         }
 

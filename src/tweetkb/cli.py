@@ -44,6 +44,17 @@ def main(argv: list[str] | None = None) -> int:
     collect.add_argument("--apple-events", action="store_true")
     collect.add_argument("--all", action="store_true", help="Collect all bookmarks")
 
+    # enrich
+    enrich = sub.add_parser("enrich", help="Open saved X bookmarks and capture full tweet/article content")
+    enrich.add_argument("--apple-events", action="store_true", help="Use logged-in Chrome through Apple Events")
+    enrich.add_argument("--category", default=None, help="Only enrich a primary category, e.g. business")
+    enrich.add_argument("--since", default=None, help="Only enrich bookmarks captured on/after YYYY-MM-DD")
+    enrich.add_argument("--limit", type=int, default=25)
+    enrich.add_argument("--wait", type=float, default=2.0)
+    enrich.add_argument("--all", action="store_true", help="Re-enrich rows that already have captured content")
+    enrich.add_argument("--include-links", action="store_true", help="Also open and capture outbound linked pages")
+    enrich.add_argument("--max-links", type=int, default=3, help="Max outbound links to read per bookmark")
+
     # login
     login = sub.add_parser("login")
     login.add_argument("--normal-chrome", action="store_true")
@@ -224,6 +235,29 @@ def _dispatch(args, db_path: Path) -> int:
             return 3
         print(f"saved={result.saved} changed={result.changed} unchanged={result.unchanged} "
               f"seen={result.seen} batches={result.batches}")
+        return 0
+
+    if args.cmd == "enrich":
+        if not args.apple_events:
+            print("Use `uv run tweetkb enrich --apple-events` so the app can read your logged-in Chrome session.")
+            return 2
+        from .enricher import enrich_with_apple_events
+
+        bookmarks = store.list_bookmarks_for_enrichment(
+            category=args.category,
+            since=args.since,
+            limit=args.limit,
+            missing_only=not args.all,
+        )
+        result = enrich_with_apple_events(
+            store,
+            bookmarks,
+            browser_app=args.browser_app or load_config().get("browser", {}).get("app", "Google Chrome"),
+            wait_seconds=args.wait,
+            include_links=args.include_links,
+            max_links=args.max_links,
+        )
+        print(f"selected={len(bookmarks)} enriched={result.enriched} skipped={result.skipped} failed={result.failed}")
         return 0
 
     if args.cmd == "analyze" or args.cmd == "classify":

@@ -121,6 +121,7 @@ def _render_note(store, row, classifs) -> str:
     links = store.get_bookmark_links(bookmark_id)
     entities = store.get_bookmark_entities(bookmark_id)
     tags = store.get_bookmark_tags(bookmark_id)
+    enrichments = store.get_content_enrichments(bookmark_id)
 
     frontmatter = {
         "type": "tweet-bookmark",
@@ -162,6 +163,21 @@ def _render_note(store, row, classifs) -> str:
         "## Tweet Text",
         row["tweet_text"] or row["raw_text"] or "",
     ])
+
+    if enrichments:
+        lines.extend(["", "## Full Captured Content"])
+        for enrichment in enrichments:
+            if not enrichment["content_text"]:
+                continue
+            title = enrichment["title"] or enrichment["source_url"]
+            lines.extend([
+                "",
+                f"### {title}",
+                f"Type: `{enrichment['source_type']}`",
+                f"Captured from: [{enrichment['source_url']}]({enrichment['source_url']})",
+                "",
+                enrichment["content_text"],
+            ])
 
     if links:
         lines.extend(["", "## Links"])
