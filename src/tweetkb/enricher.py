@@ -8,12 +8,24 @@ from typing import Any
 
 
 BLOCKED_LINK_HOSTS = {
+    "business.x.com",
     "x.com",
     "twitter.com",
     "mobile.twitter.com",
     "help.x.com",
     "ads.twitter.com",
     "analytics.twitter.com",
+}
+
+BLOCKED_LINK_TEXT = {
+    "ads",
+    "advertising",
+    "analytics",
+    "cookie",
+    "cookies",
+    "help",
+    "privacy",
+    "terms",
 }
 
 
@@ -48,7 +60,7 @@ def enrich_with_apple_events(
         status_url = row["status_url"]
         try:
             payload = capture_x_content_with_apple_events(status_url, browser_app, wait_seconds)
-        except RuntimeError:
+        except (RuntimeError, ValueError):
             result.failed += 1
             continue
 
@@ -77,7 +89,7 @@ def enrich_with_apple_events(
             for link in _candidate_outbound_links(payload.get("outbound_links", []), max_links=max_links):
                 try:
                     linked_payload = capture_page_content_with_apple_events(link, browser_app, wait_seconds)
-                except RuntimeError:
+                except (RuntimeError, ValueError):
                     result.failed += 1
                     continue
                 linked_content = linked_payload.get("content_text", "").strip()
@@ -106,13 +118,23 @@ def enrich_with_apple_events(
     return result
 
 
-def _candidate_outbound_links(links: list[str], max_links: int = 3) -> list[str]:
+def _candidate_outbound_links(links: list[Any], max_links: int = 3) -> list[str]:
     candidates: list[str] = []
-    for link in links:
+    for raw_link in links:
+        link = raw_link.get("url", "") if isinstance(raw_link, dict) else str(raw_link or "")
+        label = " ".join(
+            [
+                raw_link.get("text", "") if isinstance(raw_link, dict) else "",
+                raw_link.get("aria", "") if isinstance(raw_link, dict) else "",
+            ]
+        ).lower()
         if _is_blocked_link(link):
             continue
+        if any(token in label for token in BLOCKED_LINK_TEXT):
+            continue
         parsed = urlparse(link)
-        if "/intent/" in parsed.path or "/share" in parsed.path:
+        path = parsed.path.lower()
+        if "/intent/" in path or "/share" in path or "/privacy" in path or "/terms" in path:
             continue
         if link not in candidates:
             candidates.append(link)
@@ -147,6 +169,14 @@ def capture_x_content_with_apple_events(
 (() => {
   const textOf = (node) => node ? (node.innerText || node.textContent || '').trim() : '';
   const unique = (items) => Array.from(new Set(items.map(x => (x || '').trim()).filter(Boolean)));
+  const uniqueLinks = (items) => {
+    const seen = new Set();
+    return items.filter(item => {
+      if (!item || !item.url || seen.has(item.url)) return false;
+      seen.add(item.url);
+      return true;
+    });
+  };
   const tweetTexts = unique(Array.from(document.querySelectorAll('[data-testid="tweetText"]')).map(textOf));
   const articleLike = [
     document.querySelector('[data-testid="article"]'),
@@ -154,8 +184,17 @@ def capture_x_content_with_apple_events(
     document.querySelector('main')
   ].map(textOf).find(t => t && t.length > 200) || '';
   const mainText = textOf(document.querySelector('main')) || textOf(document.body);
-  const links = Array.from(document.querySelectorAll('a[href]')).map(a => {
-    try { return new URL(a.getAttribute('href'), location.origin).href; } catch (_) { return ''; }
+  const linkRoot = document.querySelector('[data-testid="article"]') || document.querySelector('article') || document.querySelector('main') || document.body;
+  const links = Array.from(linkRoot.querySelectorAll('a[href]')).map(a => {
+    try {
+      return {
+        url: new URL(a.getAttribute('href'), location.origin).href,
+        text: (a.innerText || a.textContent || '').trim(),
+        aria: (a.getAttribute('aria-label') || '').trim()
+      };
+    } catch (_) {
+      return null;
+    }
   }).filter(Boolean);
   const content = unique([...tweetTexts, articleLike, mainText])
     .join('\n\n')
@@ -167,7 +206,7 @@ def capture_x_content_with_apple_events(
     source_type: /\/i\/article\//.test(location.href) ? 'x-article' : 'x-status',
     content_text: content,
     tweet_texts: tweetTexts,
-    outbound_links: unique(links),
+    outbound_links: uniqueLinks(links),
     content_length: content.length
   });
 })()
@@ -209,7 +248,10 @@ def capture_x_content_with_apple_events(
         raise RuntimeError(proc.stderr.strip() or proc.stdout.strip())
     for line in reversed(proc.stdout.splitlines()):
         if line.startswith("TWEETKB_JSON="):
-            payload = json.loads(line.removeprefix("TWEETKB_JSON="))
+            try:
+                payload = json.loads(line.removeprefix("TWEETKB_JSON="))
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(f"Invalid JSON payload from Chrome: {line[-500:]}") from exc
             final_url = payload.get("url") or ""
             status_id = str(status_url).split("/status/")[-1].split("?")[0]
             if status_id not in final_url and "/i/article/" not in final_url:
@@ -271,5 +313,8 @@ def capture_page_content_with_apple_events(
         raise RuntimeError(proc.stderr.strip() or proc.stdout.strip())
     for line in reversed(proc.stdout.splitlines()):
         if line.startswith("TWEETKB_JSON="):
-            return json.loads(line.removeprefix("TWEETKB_JSON="))
+            try:
+                return json.loads(line.removeprefix("TWEETKB_JSON="))
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(f"Invalid JSON payload from Chrome: {line[-500:]}") from exc
     raise RuntimeError(f"No TWEETKB_JSON payload found: {proc.stdout[-1000:]}")

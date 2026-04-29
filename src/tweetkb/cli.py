@@ -114,6 +114,10 @@ def main(argv: list[str] | None = None) -> int:
     review_tag = review_sub.add_parser("tag", help="Add a tag to a bookmark")
     review_tag.add_argument("status_id")
     review_tag.add_argument("tag")
+    review_junk = review_sub.add_parser("junk", help="List likely junk bookmarks or captures")
+    review_junk.add_argument("--limit", type=int, default=50)
+    review_open_junk = review_sub.add_parser("open-junk", help="Open likely junk bookmarks in Chrome for manual unbookmarking")
+    review_open_junk.add_argument("--limit", type=int, default=10)
 
     # graph
     graph = sub.add_parser("graph", help="Graph operations")
@@ -508,6 +512,22 @@ def _cmd_review(args, store) -> int:
             return 1
         store.add_tags(int(row["id"]), [args.tag])
         print(f"tagged {args.status_id} with #{args.tag}")
+        return 0
+
+    if args.review_cmd in ("junk", "open-junk"):
+        from .junk import list_junk_candidates, open_bookmarks
+
+        candidates = list_junk_candidates(store, limit=args.limit)
+        print(f"=== Likely Junk ({len(candidates)} bookmarks) ===")
+        for item in candidates:
+            print(f"[{item.id}] {item.status_id} @{item.author_handle} | {item.reason} | {item.sample}")
+            print(f"    {item.status_url}")
+        if args.review_cmd == "open-junk":
+            opened = open_bookmarks(
+                [item.status_url for item in candidates],
+                browser_app=getattr(args, "browser_app", None) or load_config().get("browser", {}).get("app", "Google Chrome"),
+            )
+            print(f"opened={opened}")
         return 0
 
     return 0
