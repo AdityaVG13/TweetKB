@@ -2,7 +2,7 @@ from tweetkb.util import extract_status_id, normalize_status_url, slugify
 
 
 def test_extract_status_id_from_x_url():
-    assert extract_status_id("https://x.com/aditya/status/123456789?s=20") == "123456789"
+    assert extract_status_id("https://x.com/example/status/123456789?s=20") == "123456789"
 
 
 def test_extract_status_id_from_twitter_url():
@@ -15,4 +15,3 @@ def test_normalize_status_url():
 
 def test_slugify_has_fallback():
     assert slugify("!!!", fallback="x") == "x"
-

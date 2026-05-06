@@ -4,7 +4,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-
 DEFAULT_CONFIG_LOCATIONS = [
     Path("tweetkb.toml"),
     Path.home() / ".config" / "tweetkb" / "tweetkb.toml",
@@ -46,17 +45,29 @@ def load_config(config_path: Path | None = None) -> dict[str, Any]:
 
     # Override from environment
     if db_path := os.environ.get("TWEETKB_DB"):
-        config["database"]["path"] = db_path
+        config["database"]["path"] = _expand_path_value(db_path)
     if browser_app := os.environ.get("TWEETKB_BROWSER_APP"):
         config["browser"]["app"] = browser_app
     if browser_profile := os.environ.get("TWEETKB_BROWSER_PROFILE"):
-        config["browser"]["profile"] = browser_profile
+        config["browser"]["profile"] = _expand_path_value(browser_profile)
     if debug_port := os.environ.get("TWEETKB_BROWSER_DEBUG_PORT"):
         config["browser"]["debug_port"] = int(debug_port)
     if provider := os.environ.get("TWEETKB_ANALYSIS_PROVIDER"):
         config["analysis"]["default_provider"] = provider
 
+    _expand_known_paths(config)
     return config
+
+
+def _expand_known_paths(config: dict[str, Any]) -> None:
+    for section, key in (("database", "path"), ("browser", "profile")):
+        value = config.get(section, {}).get(key)
+        if isinstance(value, str):
+            config[section][key] = _expand_path_value(value)
+
+
+def _expand_path_value(value: str) -> str:
+    return str(Path(os.path.expandvars(value)).expanduser())
 
 
 def _merge_config(base: dict, override: dict) -> dict:

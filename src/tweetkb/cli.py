@@ -11,11 +11,11 @@ from .config import load_config
 from .db import DEFAULT_DB
 from .db import Store as DBStore
 from .exporters import ADAPTERS
-from .exporters.obsidian import export_obsidian
+from .exporters.csv import export_csv
+from .exporters.jsonl import export_jsonl
 from .exporters.logseq import export_logseq
 from .exporters.markdown import export_markdown
-from .exporters.jsonl import export_jsonl
-from .exporters.csv import export_csv
+from .exporters.obsidian import export_obsidian
 from .graph import export_graph_json
 from .server import ReviewServer
 
@@ -143,6 +143,9 @@ def main(argv: list[str] | None = None) -> int:
     # doctor
     sub.add_parser("doctor", help="Diagnose system health")
 
+    release_audit = sub.add_parser("release-audit", help="Scan tracked files for public-release blockers")
+    release_audit.add_argument("--strict-worktree", action="store_true", help="Also fail on ignored local data files")
+
     # benchmark
     bench = sub.add_parser("benchmark", help="Run performance benchmarks")
     bench.add_argument("--stage", default="all", choices=["all", "analyze", "export", "compress"])
@@ -162,6 +165,9 @@ def main(argv: list[str] | None = None) -> int:
     serve.add_argument("--port", type=int, default=8765)
 
     args = parser.parse_args(argv)
+
+    if args.cmd == "release-audit":
+        return _cmd_release_audit(args)
 
     # Resolve db path
     db_path = args.db or load_config().get("database", {}).get("path", str(DEFAULT_DB))
@@ -355,8 +361,8 @@ def _make_collector(store, args):
 
 
 def _cmd_doctor(store, db_path: Path) -> int:
-    import sys
     import platform
+    import sys
 
     print("=== tweetkb doctor ===")
     print(f"Python: {sys.version.split()[0]}")
@@ -416,6 +422,18 @@ def _cmd_doctor(store, db_path: Path) -> int:
         except Exception:
             pass
 
+    return 0
+
+
+def _cmd_release_audit(args) -> int:
+    from .release_audit import audit_repository, format_violations
+
+    root = Path.cwd()
+    violations = audit_repository(root, strict_worktree=args.strict_worktree)
+    if violations:
+        print(format_violations(violations), file=sys.stderr)
+        return 1
+    print("release audit passed")
     return 0
 
 
@@ -535,8 +553,10 @@ def _cmd_review(args, store) -> int:
 
 def _cmd_compress(args, store) -> int:
     from .compress import (
+        decode_file,
+        encode_file,
         inspect_archive,
-        encode_file, decode_file, verify_archive,
+        verify_archive,
     )
 
     if args.compress_cmd == "benchmark":
@@ -555,8 +575,8 @@ def _cmd_compress(args, store) -> int:
                 "raw_text": row["raw_text"],
             })
 
-        import tempfile
         import json
+        import tempfile
         with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False, mode="w") as f:
             for r in records:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
@@ -594,11 +614,12 @@ def _cmd_compress(args, store) -> int:
 
 
 def _benchmark_compress(store) -> int:
-    import time
-    import tempfile
-    import json
     import gzip
-    from .compress import encode_records, decode_records
+    import json
+    import tempfile
+    import time
+
+    from .compress import decode_records, encode_records
 
     # Collect records
     records = []
@@ -671,8 +692,9 @@ def _cmd_benchmark(args, store) -> int:
         print(f"analyze: {elapsed:.2f}s for {bookmarks} bookmarks ({bookmarks/elapsed:.0f}/s)")
 
     if args.stage in ("all", "export"):
-        from .exporters.obsidian import export_obsidian
         import tempfile
+
+        from .exporters.obsidian import export_obsidian
         with tempfile.TemporaryDirectory() as tmpdir:
             start = time.perf_counter()
             export_obsidian(store, Path(tmpdir))
@@ -681,7 +703,7 @@ def _cmd_benchmark(args, store) -> int:
             print(f"export (obsidian): {elapsed:.2f}s for {bookmarks} bookmarks ({bookmarks/elapsed:.0f}/s)")
 
     if args.stage in ("all", "compress"):
-        from .compress import encode_records, decode_records
+        from .compress import decode_records, encode_records
         records = [{"status_id": str(r["status_id"]), "tweet_text": r["tweet_text"] or ""}
                    for r in store.list_bookmarks()]
         if records:
