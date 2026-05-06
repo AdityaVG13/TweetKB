@@ -89,7 +89,7 @@ wheels = [
 ]
 
 [[package]]
-name = "twitter-bookmark-kb"
+name = "tweetkb"
 version = "0.3.0"
 source = { editable = "." }
 

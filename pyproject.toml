@@ -1,5 +1,5 @@
 [project]
-name = "twitter-bookmark-kb"
+name = "tweetkb"
 version = "0.3.0"
 description = "Local X/Twitter bookmark collector, classifier, knowledgebase, and Obsidian exporter."
 readme = "README.md"
