@@ -1,19 +1,32 @@
-# tweetkb
+# TweetKB
 
-Local-first X/Twitter bookmark knowledge base.
+Turn saved X/Twitter bookmarks into a private, local knowledge base.
 
-`tweetkb` collects bookmarks from your logged-in browser, stores them in SQLite,
+TweetKB collects bookmarks from your logged-in browser, stores them in SQLite,
 classifies and enriches them locally, and exports clean notes for Obsidian,
-Logseq, Markdown, JSONL, or CSV.
+Logseq, Markdown, JSONL, or CSV. It is built for people who save useful posts
+and then want search, review, clustering, project ideas, and portable exports
+without handing their bookmark archive to another service.
 
-## Safety Model
+## Why TweetKB
+
+- Local-first SQLite database
+- Read-only browser collection
+- Deterministic local classification by default
+- Optional enrichment for long-form posts and linked pages
+- Exports to Obsidian, Logseq, Markdown, JSONL, and CSV
+- Full-text search and a local review UI
+- Release audit to catch private paths, runtime data, and accidental secrets
+
+## Privacy Model
 
 - No bookmark database is shipped in this repository.
 - No exported vault is shipped in this repository.
 - No browser profile, cookie store, API key, or `.env` file is tracked.
 - Runtime data stays under `data/` by default and is ignored by git.
-- Cloud LLM providers are disabled unless you explicitly opt in.
-- Browser collection is read-only. It scrolls and reads visible bookmark content.
+- Cloud LLM providers are disabled unless explicitly enabled.
+- Browser collection scrolls and reads visible bookmark content. It does not
+  post, like, follow, delete, message, or change account settings.
 
 ## Requirements
 
@@ -22,13 +35,22 @@ Logseq, Markdown, JSONL, or CSV.
 - Chrome or Chromium for bookmark collection
 - `browser-harness` on `PATH` for Browser-Harness collection
 
-Core analysis, export, compression, and tests do not require cloud services.
-
-## Install
+Install `uv`:
 
 ```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Official `uv` installation options: <https://docs.astral.sh/uv/getting-started/installation/>
+
+## Quickstart
+
+```bash
+git clone <repo-url> TweetKB
+cd TweetKB
 uv sync --extra dev
 uv run tweetkb init
+uv run tweetkb --help
 ```
 
 Optional local config:
@@ -47,7 +69,7 @@ Open a Browser-Harness managed Chrome session and log in if needed:
 uv run tweetkb login
 ```
 
-Then collect:
+Then collect a bounded sample:
 
 ```bash
 uv run tweetkb collect --limit 100 --batch-size 20
@@ -78,7 +100,7 @@ uv run tweetkb serve
 
 Open the local review UI at `http://127.0.0.1:8765`.
 
-Useful filters:
+Useful export filters:
 
 ```bash
 uv run tweetkb export --adapter markdown --vault ./exports/markdown --exclude-category misc
@@ -116,6 +138,49 @@ uv run tweetkb compress verify ./exports/bookmarks.twz
 uv run tweetkb compress inspect ./exports/bookmarks.twz
 ```
 
+## For AI Coding Agents
+
+Use these instructions when an AI agent is asked to download, install, or verify
+TweetKB.
+
+```text
+You are installing TweetKB from source.
+
+Rules:
+- Do not ask for X/Twitter credentials.
+- Do not inspect or upload browser cookies, browser profiles, `.env`, `data/`,
+  `exports/`, or vault folders.
+- Do not run `collect`, `enrich`, `chrome-debug`, or `--normal-chrome` unless
+  the user explicitly asks you to operate their browser.
+- Use synthetic data for tests.
+
+Install and verify:
+1. Ensure `uv` exists. If missing, install it from the official Astral docs.
+2. Run: git clone <repo-url> TweetKB
+3. Run: cd TweetKB
+4. Run: uv sync --extra dev
+5. Run: uv run tweetkb init --db /tmp/tweetkb-smoke.sqlite3
+6. Run: uv run tweetkb --help
+7. Run: uv run pytest
+8. Run: uv run ruff check .
+9. Run: uv run tweetkb release-audit
+
+Success means the CLI works, tests pass, lint passes, and release audit passes.
+```
+
+Shell-only version:
+
+```bash
+git clone <repo-url> TweetKB
+cd TweetKB
+uv sync --extra dev
+uv run tweetkb init --db /tmp/tweetkb-smoke.sqlite3
+uv run tweetkb --help
+uv run pytest
+uv run ruff check .
+uv run tweetkb release-audit
+```
+
 ## Public Release Audit
 
 Run this before publishing source or building artifacts:
@@ -135,6 +200,7 @@ See [docs/RELEASE.md](docs/RELEASE.md) for the complete release checklist.
 ## Development
 
 ```bash
+uv sync --extra dev
 uv run pytest
 uv run ruff check .
 uv run python -m compileall src tests tools
