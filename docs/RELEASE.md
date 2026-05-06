@@ -46,6 +46,23 @@ uv run python -m compileall src tests tools
 uv build
 ```
 
+## Install Smoke Test
+
+For a source checkout:
+
+```bash
+uv run tweetkb --help
+printf '0\n' | uv run tweetkb
+```
+
+For a public tool install:
+
+```bash
+uv tool install --force git+https://github.com/AdityaVG13/TweetKB.git
+tweetkb --help
+printf '0\n' | tweetkb
+```
+
 ## Malware Scans
 
 Run local ClamAV:
@@ -81,9 +98,18 @@ mkdir ../tweetkb-public
 git archive HEAD | tar -x -C ../tweetkb-public
 cd ../tweetkb-public
 git init
-git add .
+git add README.md pyproject.toml src tests docs tools CHANGELOG.md CONTRIBUTING.md LICENSE SECURITY.md tweetkb.example.toml data/.gitkeep
 git commit -m "feat: public release"
 ```
 
 Set the public remote only after reviewing `git log`, `git status --ignored`,
 and release scan results.
+
+## GitHub Release
+
+```bash
+git push origin main
+git tag -a v0.3.0 -m "TweetKB v0.3.0"
+git push origin v0.3.0
+gh release create v0.3.0 --title "TweetKB v0.3.0" --notes-file docs/RELEASE_NOTES_v0.3.0.md
+```
