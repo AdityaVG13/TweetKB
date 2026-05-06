@@ -20,8 +20,8 @@ def embed_text_local_hash(text: str, dims: int = 64) -> list[float]:
 def embed_text_ollama(text: str, model: str = "nomic-embed-text") -> list[float] | None:
     """Embed using local Ollama server. Returns None if unavailable."""
     try:
-        import urllib.request
         import json
+        import urllib.request
 
         req = urllib.request.Request(
             "http://localhost:11434/api/embeddings",
@@ -42,8 +42,8 @@ def embed_text_openai(text: str, model: str = "text-embedding-3-small") -> list[
     if not api_key:
         return None
     try:
-        import urllib.request
         import json
+        import urllib.request
 
         req = urllib.request.Request(
             "https://api.openai.com/v1/embeddings",

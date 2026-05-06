@@ -1,4 +1,4 @@
-from tweetkb.entities import extract_entities, detect_entity_type, get_domain, normalize_entity_name
+from tweetkb.entities import detect_entity_type, extract_entities, get_domain, normalize_entity_name
 
 
 def test_extract_entities_basic():

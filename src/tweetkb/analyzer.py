@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import Any
 
 from .classifier import classify_text
+from .embeddings import embed_text
 from .enricher import enriched_text_for_analysis
 from .entities import extract_entities
-from .embeddings import embed_text
 from .util import stable_hash
 
 

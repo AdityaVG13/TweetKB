@@ -1,4 +1,5 @@
 from pathlib import Path
+
 from tweetkb.clusters import generate_clusters
 from tweetkb.db import Store
 

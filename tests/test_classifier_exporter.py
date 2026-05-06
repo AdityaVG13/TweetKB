@@ -2,8 +2,8 @@ from pathlib import Path
 
 from tweetkb.classifier import classify_text, embed_text
 from tweetkb.db import Store
-from tweetkb.exporters.obsidian import export_obsidian
 from tweetkb.exporters.obsidian import _note_filename as note_filename
+from tweetkb.exporters.obsidian import export_obsidian
 
 
 def test_classifier_detects_agents():

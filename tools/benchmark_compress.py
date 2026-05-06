@@ -11,7 +11,6 @@ import json
 import random
 import statistics
 import string
-import struct
 import sys
 import time
 import zlib
@@ -20,13 +19,13 @@ from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from tweetkb.compress import encode_records as encode_v1, decode_records as decode_v1
-from tweetkb.compress_v2 import encode_records_v2, decode_records_v2
-from tweetkb.compress_v3 import encode_records_v3, decode_records_v3
-from tweetkb.compress_v4 import encode_records_v4, decode_records_v4
-from tweetkb.compress_v5 import encode_records_v5, decode_records_v5
-from tweetkb.compress_v6 import encode_records_v6, decode_records_v6
-
+from tweetkb.compress import decode_records as decode_v1
+from tweetkb.compress import encode_records as encode_v1
+from tweetkb.compress_v2 import decode_records_v2, encode_records_v2
+from tweetkb.compress_v3 import decode_records_v3, encode_records_v3
+from tweetkb.compress_v4 import decode_records_v4, encode_records_v4
+from tweetkb.compress_v5 import decode_records_v5, encode_records_v5
+from tweetkb.compress_v6 import decode_records_v6, encode_records_v6
 
 # ═══════════════════════════════════════════════════════════════════════════
 # SYNTHETIC DATA GENERATORS - NO EXTERNAL DOWNLOADS
@@ -101,8 +100,6 @@ class SyntheticCorpus:
     def generate_bookmarks(n: int, repeat_factor: float = 0.3) -> list[dict]:
         """Generate bookmark-like records with realistic repetition patterns."""
         records = []
-        used_urls = []
-
         for i in range(n):
             status_id = 1700000000000 + i
 
@@ -221,11 +218,6 @@ class SyntheticCorpus:
     @staticmethod
     def generate_code_corpus(n_bytes: int) -> bytes:
         """Generate Python-like code."""
-        keywords = ["def", "class", "if", "else", "elif", "for", "while", "try",
-                    "except", "finally", "with", "as", "import", "from", "return",
-                    "yield", "raise", "pass", "break", "continue", "lambda",
-                    "and", "or", "not", "in", "is", "True", "False", "None"]
-
         types_ = ["int", "str", "bool", "float", "list", "dict", "set", "tuple",
                  "Optional", "List", "Dict", "Any", "Union", "Callable", "bytes"]
 

@@ -1,5 +1,14 @@
 from pathlib import Path
-from tweetkb.compress import encode_records, decode_records, verify_archive, encode_file, decode_file, inspect_archive, MAGIC
+
+from tweetkb.compress import (
+    MAGIC,
+    decode_file,
+    decode_records,
+    encode_file,
+    encode_records,
+    inspect_archive,
+    verify_archive,
+)
 
 
 def test_magic_header():

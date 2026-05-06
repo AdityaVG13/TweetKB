@@ -3,7 +3,6 @@ from __future__ import annotations
 import subprocess
 from dataclasses import dataclass
 
-
 JUNK_LINK_HOSTS = {
     "business.x.com",
     "help.x.com",

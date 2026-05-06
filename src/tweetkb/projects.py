@@ -146,7 +146,7 @@ def _generate_one_liner(category: str, entities: list[str], domains: list[str], 
     """Generate a one-liner summary."""
     entity_part = " + ".join(entities[:2]) if entities else "this space"
     domain_part = f" (across {domains[0]})" if domains else ""
-    return f"Build something with {entity_part}{domain_part} — found in {count} bookmarks."
+    return f"Build something with {entity_part}{domain_part} - found in {count} bookmarks."
 
 
 def _extract_problem(texts: list[str], category: str) -> str:

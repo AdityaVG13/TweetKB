@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from .obsidian import export_obsidian
+from .csv import export_csv
+from .jsonl import export_jsonl
 from .logseq import export_logseq
 from .markdown import export_markdown
-from .jsonl import export_jsonl
-from .csv import export_csv
+from .obsidian import export_obsidian
 
 ADAPTERS = {
     "obsidian": export_obsidian,

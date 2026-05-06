@@ -1,4 +1,5 @@
 from pathlib import Path
+
 from tweetkb.migrations import SCHEMA_VERSION, migrate
 
 

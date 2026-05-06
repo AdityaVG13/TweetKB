@@ -3,9 +3,8 @@ from __future__ import annotations
 import json
 import subprocess
 from dataclasses import dataclass
-from urllib.parse import urlparse
 from typing import Any
-
+from urllib.parse import urlparse
 
 BLOCKED_LINK_HOSTS = {
     "business.x.com",

@@ -5,7 +5,6 @@ from collections import defaultdict
 from pathlib import Path
 
 
-
 def build_graph(store) -> dict:
     """Build a graph structure from all bookmark data."""
     nodes = []
