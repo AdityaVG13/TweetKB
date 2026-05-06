@@ -2,11 +2,31 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
 .DS_Store
-data/*.db
-data/*.db-*
-data/*.sqlite3
-data/*.sqlite3-*
-data/*.bak-*
-data/checkpoint.json
+.env
+.env.*
+!.env.example
+
+# Local config may contain private filesystem paths.
+tweetkb.toml
+tweetkb.local.toml
+
+# Runtime data. Keep the placeholder only.
+data/*
+!data/.gitkeep
+
+# User exports and generated release artifacts.
 obsidian-vault/
+exports/
+dist/
+build/
+*.egg-info/
+*.twz
+*.jsonl
+*.csv
+*.sqlite
+*.sqlite3
+*.db
+*.bak
