@@ -1,6 +1,6 @@
 # Roadmap
 
-## v0.2 — Foundation (current session)
+## v0.2 - Foundation
 
 ### Done
 - Schema migration framework
@@ -15,14 +15,14 @@
 - TweetZip compression experiment
 - Doctor/benchmark/compact commands
 - Comprehensive tests
-- GitHub Actions CI
+- Manual release checklist
 
 ### In Progress
 - Full backend integration
 - Test coverage expansion
 - Documentation
 
-## v0.3 — Hardening
+## v0.3 - Hardening
 
 - [ ] Deterministic embeddings vs local-model comparison
 - [ ] FTS index rebuild command
@@ -33,7 +33,7 @@
 - [ ] Cluster merge/split commands
 - [ ] Project idea refinement UI
 
-## v0.4 — Intelligence
+## v0.4 - Intelligence
 
 - [ ] LLM classification with JSON schema output
 - [ ] LLM project brief generator
@@ -44,7 +44,7 @@
 - [ ] Reading time estimates
 - [ ] Duplicate detection improvements
 
-## v0.5 — Connectivity
+## v0.5 - Connectivity
 
 - [ ] RSS/Atom feed importer
 - [ ] Link preview enrichment (title, description, og:image)
@@ -53,7 +53,7 @@
 - [ ] Hacker News / Lobsters mention detection
 - [ ] "Who else bookmarked this" via author analysis
 
-## v0.6 — Desktop
+## v0.6 - Desktop
 
 - [ ] Tauri v2 scaffold
 - [ ] System tray with collection status
@@ -62,7 +62,7 @@
 - [ ] Desktop UI: dashboard, review queue, graph view
 - [ ] Spotlight/Alfred integration for search
 
-## v1.0 — Personal Intelligence Engine
+## v1.0 - Personal Intelligence Engine
 
 - [ ] Local embedding model (no external API for embeddings)
 - [ ] Semantic search over bookmarks
@@ -74,7 +74,7 @@
 
 ## Open Source Milestones
 
-- [ ] CI passes on Ubuntu/macOS/Windows
+- [ ] Cross-platform verification on Ubuntu/macOS/Windows
 - [ ] pip installable (`pip install tweetkb`)
 - [ ] Cross-platform browser automation (Chrome/Firefox/Safari)
 - [ ] Contributor guide

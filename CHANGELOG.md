@@ -1,0 +1,15 @@
+# Changelog
+
+## 0.3.0
+
+- Removed internal prompt docs and personal release helper from the tracked tree.
+- Added public release audit command.
+- Added license, security policy, contributing guide, release checklist, and config example.
+- Hardened git ignores for runtime data, local config, exports, and release artifacts.
+- Expanded config paths from `~` and environment variables.
+- Added Ruff to the development checks.
+
+## 0.2.0
+
+- Added collection, analysis, graph, project mining, review, export, and compression workflows.
+- Added SQLite migrations and tests for the core local-first pipeline.

@@ -1,0 +1,24 @@
+[database]
+path = "data/bookmarks.sqlite3"
+
+[browser]
+app = "Google Chrome"
+profile = "$HOME/Library/Application Support/Google/Chrome"
+debug_port = 9222
+
+[collect]
+batch_size = 20
+wait = 1.5
+stagnant_batches = 10
+
+[analysis]
+default_provider = "local-hash"
+changed_only = true
+
+[export.obsidian]
+exclude_categories = ["misc"]
+exclude_review = false
+
+[export.logseq]
+exclude_categories = ["misc"]
+exclude_review = false

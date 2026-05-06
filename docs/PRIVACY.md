@@ -6,6 +6,7 @@
 - **Checkpoint**: Collection state at `data/checkpoint.json`
 - **Export vault**: Markdown notes at user-specified path
 - **No cloud storage**: All data stays on your machine
+- **No bundled personal data**: The public repository ships only `data/.gitkeep`, not a bookmark database or exported vault
 
 ## What's Collected
 
@@ -35,7 +36,7 @@ If you configure an LLM provider (OpenAI, Ollama):
 
 - Tweet text may be sent to the provider API for classification/analysis
 - Provider API keys stored in environment variables or config, not in code
-- Disabled by default — you must opt-in with `--provider openai` or `--provider ollama`
+- Disabled by default. You must opt in with `--provider openai` or `--provider ollama`
 - Local Ollama sends data to localhost only
 
 ## What Leaves Your Machine
@@ -65,7 +66,7 @@ Exported vault files contain:
 - All extracted URLs
 - Classification results
 
-**Keep your vault private** — add to `.gitignore` if storing in git.
+**Keep your vault private**. Vault exports are ignored by default.
 
 ## Secrets
 

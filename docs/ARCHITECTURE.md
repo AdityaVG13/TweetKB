@@ -2,7 +2,7 @@
 
 ## Overview
 
-TwitterOrganizer is a local-first X/Twitter bookmark knowledgebase. It collects bookmarks via browser automation, stores them in SQLite, analyzes them with deterministic local algorithms, builds a knowledge graph, proposes project ideas, and exports to multiple knowledge tools.
+tweetkb is a local-first X/Twitter bookmark knowledge base. It collects bookmarks via browser automation, stores them in SQLite, analyzes them with deterministic local algorithms, builds a knowledge graph, proposes project ideas, and exports to multiple knowledge tools.
 
 ## Design Principles
 
@@ -62,7 +62,7 @@ src/tweetkb/
     csv.py             CSV adapter
   server.py            Review UI HTTP server
   review.py            Review state machine, actions
-  providers.py         LLM provider abstraction (optional)
+  embeddings.py        Local and optional provider embedding helpers
   util.py              Shared utilities
   compress.py          TweetZip compression (Python reference impl)
 ```

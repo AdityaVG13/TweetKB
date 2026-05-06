@@ -2,7 +2,7 @@
 
 ## Overview
 
-TwitterOrganizer exports bookmarks to multiple knowledge tools. Exports are adapters that read from SQLite and write to target format. The SQLite DB remains the source of truth.
+tweetkb exports bookmarks to multiple knowledge tools. Exports are adapters that read from SQLite and write to target format. The SQLite DB remains the source of truth.
 
 ## Adapters
 
