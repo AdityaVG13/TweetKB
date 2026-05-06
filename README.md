@@ -111,7 +111,7 @@ tweetkb
 
 From a source checkout, use `uv run tweetkb`.
 
-![TweetKB terminal menu](docs/assets/tweetkb-menu.svg)
+![TweetKB terminal menu](docs/assets/tweetkb-menu.png)
 
 The menu can initialize the database, open login Chrome, collect bookmarks,
 analyze selected slices, enrich posts, export notes, review bookmarks, show
@@ -214,6 +214,8 @@ uv run tweetkb analyze --stage entities --include-category ai-agents,coding
 uv run tweetkb analyze --stage embed --exclude-category misc --needs-review
 uv run tweetkb analyze --stage all --reviewed
 ```
+
+![TweetKB progress output](docs/assets/tweetkb-progress.png)
 
 ## Enrich saved posts
 

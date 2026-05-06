@@ -2,6 +2,8 @@
 
 Running `tweetkb` opens the interactive menu.
 
+![TweetKB terminal menu](assets/tweetkb-menu.png)
+
 ```text
 $ tweetkb
 TweetKB
@@ -35,3 +37,5 @@ $ tweetkb analyze --stage entities --include-category ai-agents,coding --needs-r
 
 Long-running commands print progress, selected counts, processed bookmark IDs,
 captured URLs, and final totals.
+
+![TweetKB progress output](assets/tweetkb-progress.png)
