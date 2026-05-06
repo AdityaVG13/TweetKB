@@ -35,3 +35,17 @@ def test_analysis_can_limit_selection(tmp_path):
     assert result["total"] == 2
     assert len([row for row in store.list_bookmarks() if store.get_bookmark_classifications(int(row["id"]))]) == 2
     store.close()
+
+
+def test_analysis_reports_progress(tmp_path):
+    store = Store(tmp_path / "db.sqlite3")
+    store.init()
+    bookmark_id = store.upsert_bookmark({"status_url": "https://x.com/a/status/1", "tweet_text": "OpenAI agent"})
+    assert bookmark_id
+    messages: list[str] = []
+
+    run_analysis(store, stage="classify", changed_only=False, progress=messages.append)
+
+    assert messages[0] == "analysis: selected=1 stage=classify provider=local-hash"
+    assert messages[1] == "analysis: 1/1 processing 1"
+    store.close()

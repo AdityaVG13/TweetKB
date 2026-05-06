@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from .classifier import classify_text
@@ -81,6 +82,7 @@ def run_analysis(
     needs_review: bool | None = None,
     review_state: str | None = None,
     limit: int | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     """Run analysis pipeline on bookmarks."""
     stages = ["classify", "entities", "embed", "summaries"]
@@ -100,9 +102,13 @@ def run_analysis(
         review_state=review_state,
         limit=limit,
     )
+    selected = len(bookmarks)
+    if progress:
+        progress(f"analysis: selected={selected} stage={stage} provider={provider}")
 
-    for row in bookmarks:
+    for index, row in enumerate(bookmarks, start=1):
         bookmark_id = int(row["id"])
+        status_id = row["status_id"]
         text = "\n".join([row["tweet_text"] or "", row["raw_text"] or ""])
         text = enriched_text_for_analysis(store, bookmark_id, text)
         analysis_hash = stable_hash(text)
@@ -112,8 +118,12 @@ def run_analysis(
                 (bookmark_id, provider),
             ).fetchone()
             if existing_embedding and existing_embedding["content_hash"] == analysis_hash:
+                if progress:
+                    progress(f"analysis: {index}/{selected} skipped unchanged {status_id}")
                 continue
         total += 1
+        if progress:
+            progress(f"analysis: {index}/{selected} processing {status_id}")
 
         if "all" in stages or "classify" in stages:
             links_rows = store.get_bookmark_links(bookmark_id)
@@ -150,7 +160,7 @@ def run_analysis(
 
     return {
         "total": total,
-        "selected": len(bookmarks),
+        "selected": selected,
         "classified": classified,
         "entities_added": entities_added,
         "embedded": embedded,

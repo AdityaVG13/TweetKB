@@ -465,6 +465,11 @@ def _dispatch(args, db_path: Path) -> int:
     if args.cmd == "collect":
         collector = _make_collector(store, args)
         collector.ensure_available()
+        print(
+            f"collect: limit={args.limit} batch_size={args.batch_size} wait={args.wait} "
+            f"mode={'apple-events' if args.apple_events else 'normal-chrome' if args.normal_chrome else 'browser-harness'}",
+            flush=True,
+        )
         result = collector.collect(
             args.limit,
             args.batch_size,
@@ -511,6 +516,7 @@ def _dispatch(args, db_path: Path) -> int:
             wait_seconds=args.wait,
             include_links=args.include_links,
             max_links=args.max_links,
+            progress=_print_progress,
         )
         print(f"selected={len(bookmarks)} enriched={result.enriched} skipped={result.skipped} failed={result.failed}")
         return 0
@@ -533,6 +539,7 @@ def _dispatch(args, db_path: Path) -> int:
             needs_review=args.needs_review,
             review_state=args.review_state,
             limit=args.limit,
+            progress=_print_progress,
         )
         print(f"selected={result['selected']} analyzed={result['total']} classified={result['classified']} "
               f"entities_added={result['entities_added']} embedded={result['embedded']}")
@@ -757,6 +764,10 @@ def _cmd_export(args, store) -> int:
 
 def _parse_csv_set(value: str | None) -> set[str]:
     return {item.strip() for item in (value or "").split(",") if item.strip()}
+
+
+def _print_progress(message: str) -> None:
+    print(message, flush=True)
 
 
 def _cmd_review(args, store) -> int:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
@@ -52,11 +53,17 @@ def enrich_with_apple_events(
     wait_seconds: float = 2.0,
     include_links: bool = False,
     max_links: int = 3,
+    progress: Callable[[str], None] | None = None,
 ) -> EnrichResult:
     result = EnrichResult()
-    for row in bookmarks:
+    total = len(bookmarks)
+    if progress:
+        progress(f"enrich: selected={total} include_links={include_links}")
+    for index, row in enumerate(bookmarks, start=1):
         bookmark_id = int(row["id"])
         status_url = row["status_url"]
+        if progress:
+            progress(f"enrich: {index}/{total} status {status_url}")
         try:
             payload = capture_x_content_with_apple_events(status_url, browser_app, wait_seconds)
         except (RuntimeError, ValueError):
@@ -85,7 +92,10 @@ def enrich_with_apple_events(
             result.skipped += 1
 
         if include_links:
-            for link in _candidate_outbound_links(payload.get("outbound_links", []), max_links=max_links):
+            links = _candidate_outbound_links(payload.get("outbound_links", []), max_links=max_links)
+            for link_index, link in enumerate(links, start=1):
+                if progress:
+                    progress(f"enrich: {index}/{total} link {link_index}/{len(links)} {link}")
                 try:
                     linked_payload = capture_page_content_with_apple_events(link, browser_app, wait_seconds)
                 except (RuntimeError, ValueError):

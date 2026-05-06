@@ -59,6 +59,16 @@ uv sync --extra dev
 uv run tweetkb init
 ```
 
+From a source checkout, run commands with `uv run`:
+
+```bash
+uv run tweetkb
+uv run tweetkb stats
+```
+
+If you install the package into an active Python environment, the command is
+available directly as `tweetkb`.
+
 Optional local config:
 
 ```bash
@@ -81,6 +91,8 @@ stats, generate clusters, mine project ideas, export graphs, run TweetZip, start
 the review UI, run doctor checks, and run the release audit.
 
 Every menu action prints the exact `tweetkb ...` command before running it.
+Long-running commands also print progress lines such as selected counts,
+bookmark IDs, enrich URLs, and final totals.
 
 ## Common workflow
 
