@@ -75,10 +75,12 @@
 ## Open Source Milestones
 
 - [ ] Cross-platform verification on Ubuntu/macOS/Windows
+- [x] Installable from GitHub with `uv tool install`
 - [ ] pip installable (`pip install tweetkb`)
 - [ ] Cross-platform browser automation (Chrome/Firefox/Safari)
-- [ ] Contributor guide
-- [ ] Changelog
+- [x] Contributor guide
+- [x] Changelog
+- [x] Terminal demo
 - [ ] Demo video
 - [ ] Blog post series
 

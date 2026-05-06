@@ -52,6 +52,24 @@ Official `uv` docs: <https://docs.astral.sh/uv/getting-started/installation/>
 
 ## Install
 
+Install as a global `uv` tool:
+
+```bash
+uv tool install git+https://github.com/AdityaVG13/TweetKB.git
+uv tool update-shell
+```
+
+Open a new terminal, then run:
+
+```bash
+tweetkb init
+tweetkb
+```
+
+That gives you the direct `tweetkb` command. No `uv run` needed after install.
+
+Use a source checkout when you want to develop, run tests, or inspect the code:
+
 ```bash
 git clone https://github.com/AdityaVG13/TweetKB.git TweetKB
 cd TweetKB
@@ -69,6 +87,12 @@ uv run tweetkb stats
 If you install the package into an active Python environment, the command is
 available directly as `tweetkb`.
 
+Upgrade a tool install:
+
+```bash
+uv tool upgrade tweetkb
+```
+
 Optional local config:
 
 ```bash
@@ -82,8 +106,12 @@ cp tweetkb.example.toml tweetkb.toml
 Run:
 
 ```bash
-uv run tweetkb
+tweetkb
 ```
+
+From a source checkout, use `uv run tweetkb`.
+
+![TweetKB terminal menu](docs/assets/tweetkb-menu.svg)
 
 The menu can initialize the database, open login Chrome, collect bookmarks,
 analyze selected slices, enrich posts, export notes, review bookmarks, show
@@ -136,6 +164,22 @@ uv run tweetkb serve
 Then open `http://127.0.0.1:8765`.
 
 ## Collection modes
+
+Install Browser-Harness before collecting bookmarks:
+
+```bash
+git clone https://github.com/browser-use/browser-harness ~/Developer/browser-harness
+cd ~/Developer/browser-harness
+uv tool install -e .
+browser-harness --setup
+browser-harness --doctor
+```
+
+TweetKB calls `browser-harness` for the default collection mode. You do not need
+to run Browser-Harness manually after setup.
+
+See [Browser-Harness setup](docs/BROWSER_HARNESS.md) for managed Chrome,
+normal Chrome, and troubleshooting notes.
 
 Default Browser-Harness collection:
 
@@ -285,9 +329,11 @@ uv build
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
+- [Browser-Harness setup](docs/BROWSER_HARNESS.md)
 - [Data model](docs/DATA_MODEL.md)
 - [Exports](docs/EXPORTS.md)
 - [Privacy](docs/PRIVACY.md)
 - [Release](docs/RELEASE.md)
+- [Terminal demo](docs/TERMINAL_DEMO.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Security](SECURITY.md)
