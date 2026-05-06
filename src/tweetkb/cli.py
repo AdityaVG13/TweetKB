@@ -68,9 +68,21 @@ def main(argv: list[str] | None = None) -> int:
     analyze.add_argument("--provider", default="local-hash", choices=["local-hash", "ollama", "openai"])
     analyze.add_argument("--changed-only", action="store_true", default=True)
     analyze.add_argument("--no-changed-only", dest="changed_only", action="store_false")
+    analyze.add_argument("--include-category", default="", help="Analyze only already-classified categories")
+    analyze.add_argument("--exclude-category", default="", help="Skip already-classified categories")
+    analyze.add_argument("--needs-review", action="store_true", default=None, help="Analyze only bookmarks needing review")
+    analyze.add_argument("--reviewed", dest="needs_review", action="store_false", help="Analyze only reviewed bookmarks")
+    analyze.add_argument("--review-state", default=None, help="Analyze only one review state")
+    analyze.add_argument("--limit", type=int, default=None, help="Analyze at most N selected bookmarks")
 
     # classify (legacy, delegates to analyze)
-    sub.add_parser("classify", help="Classify bookmarks (alias for analyze --stage classify)")
+    classify = sub.add_parser("classify", help="Classify bookmarks (alias for analyze --stage classify)")
+    classify.add_argument("--include-category", default="", help="Classify only already-classified categories")
+    classify.add_argument("--exclude-category", default="", help="Skip already-classified categories")
+    classify.add_argument("--needs-review", action="store_true", default=None, help="Classify only bookmarks needing review")
+    classify.add_argument("--reviewed", dest="needs_review", action="store_false", help="Classify only reviewed bookmarks")
+    classify.add_argument("--review-state", default=None, help="Classify only one review state")
+    classify.add_argument("--limit", type=int, default=None, help="Classify at most N selected bookmarks")
 
     # entities
     sub.add_parser("entities", help="Extract entities from all bookmarks")
@@ -274,8 +286,22 @@ def _dispatch(args, db_path: Path) -> int:
         from .analyzer import run_analysis
         if args.cmd == "classify":
             args.stage = "classify"
-        result = run_analysis(store, stage=args.stage, provider=args.provider, changed_only=args.changed_only)
-        print(f"analyzed={result['total']} classified={result['classified']} "
+            args.provider = "local-hash"
+            args.changed_only = False
+        include_cats = _parse_csv_set(args.include_category) or None
+        exclude_cats = _parse_csv_set(args.exclude_category) or None
+        result = run_analysis(
+            store,
+            stage=args.stage,
+            provider=args.provider,
+            changed_only=args.changed_only,
+            include_categories=include_cats,
+            exclude_categories=exclude_cats,
+            needs_review=args.needs_review,
+            review_state=args.review_state,
+            limit=args.limit,
+        )
+        print(f"selected={result['selected']} analyzed={result['total']} classified={result['classified']} "
               f"entities_added={result['entities_added']} embedded={result['embedded']}")
         return 0
 
@@ -440,8 +466,8 @@ def _cmd_release_audit(args) -> int:
 def _cmd_export(args, store) -> int:
     vault_path = args.vault or Path(".")
 
-    exclude_cats = {c.strip() for c in args.exclude_category.split(",") if c.strip()}
-    include_cats = {c.strip() for c in args.include_category.split(",") if c.strip()} or None
+    exclude_cats = _parse_csv_set(args.exclude_category)
+    include_cats = _parse_csv_set(args.include_category) or None
 
     adapter = args.adapter
 
@@ -494,6 +520,10 @@ def _cmd_export(args, store) -> int:
     store.log_export_run(adapter, str(vault_path), exported, skipped)
     print(f"exported={exported} skipped={skipped} adapter={adapter}")
     return 0
+
+
+def _parse_csv_set(value: str | None) -> set[str]:
+    return {item.strip() for item in (value or "").split(",") if item.strip()}
 
 
 def _cmd_review(args, store) -> int:

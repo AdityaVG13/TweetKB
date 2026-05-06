@@ -100,6 +100,18 @@ uv run tweetkb serve
 
 Open the local review UI at `http://127.0.0.1:8765`.
 
+Analyze only a selected slice:
+
+```bash
+uv run tweetkb analyze --stage all --limit 100
+uv run tweetkb analyze --stage entities --include-category ai-agents,coding
+uv run tweetkb analyze --stage embed --exclude-category misc --needs-review
+```
+
+Category filters use existing classifications. A typical workflow is to run
+`uv run tweetkb analyze --stage classify` once, then rerun heavier stages such
+as `entities` or `embed` for selected categories.
+
 Useful export filters:
 
 ```bash

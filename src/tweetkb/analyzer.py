@@ -76,6 +76,11 @@ def run_analysis(
     stage: str = "all",
     provider: str = "local-hash",
     changed_only: bool = True,
+    include_categories: set[str] | None = None,
+    exclude_categories: set[str] | None = None,
+    needs_review: bool | None = None,
+    review_state: str | None = None,
+    limit: int | None = None,
 ) -> dict[str, Any]:
     """Run analysis pipeline on bookmarks."""
     stages = ["classify", "entities", "embed", "summaries"]
@@ -87,7 +92,14 @@ def run_analysis(
     entities_added = 0
     embedded = 0
 
-    bookmarks = store.list_bookmarks_for_analysis(changed_only=False)
+    bookmarks = store.list_bookmarks_for_analysis(
+        changed_only=False,
+        include_categories=include_categories,
+        exclude_categories=exclude_categories,
+        needs_review=needs_review,
+        review_state=review_state,
+        limit=limit,
+    )
 
     for row in bookmarks:
         bookmark_id = int(row["id"])
@@ -138,6 +150,7 @@ def run_analysis(
 
     return {
         "total": total,
+        "selected": len(bookmarks),
         "classified": classified,
         "entities_added": entities_added,
         "embedded": embedded,

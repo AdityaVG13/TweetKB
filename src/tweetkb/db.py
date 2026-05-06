@@ -393,21 +393,56 @@ class Store:
             sql += f" LIMIT {limit} OFFSET {offset}"
         return list(self.conn.execute(sql, params))
 
-    def list_bookmarks_for_analysis(self, changed_only: bool = False) -> list[sqlite3.Row]:
+    def list_bookmarks_for_analysis(
+        self,
+        changed_only: bool = False,
+        include_categories: set[str] | None = None,
+        exclude_categories: set[str] | None = None,
+        needs_review: bool | None = None,
+        review_state: str | None = None,
+        limit: int | None = None,
+    ) -> list[sqlite3.Row]:
+        params: list[Any] = []
+        joins: list[str] = []
+        where = ["b.is_deleted = 0"]
+
         if changed_only:
-            return list(
-                self.conn.execute(
-                    """SELECT b.* FROM bookmarks b
-                       LEFT JOIN embeddings e ON e.bookmark_id = b.id
-                       WHERE b.is_deleted = 0 AND e.id IS NULL
-                       ORDER BY b.id"""
-                )
+            joins.append("LEFT JOIN embeddings e ON e.bookmark_id = b.id")
+            where.append("e.id IS NULL")
+        if include_categories:
+            placeholders = ",".join("?" for _ in include_categories)
+            where.append(
+                "EXISTS ("
+                "SELECT 1 FROM classifications ac "
+                "WHERE ac.bookmark_id = b.id AND ac.category_slug IN "
+                f"({placeholders})"
+                ")"
             )
-        return list(
-            self.conn.execute(
-                "SELECT * FROM bookmarks WHERE is_deleted = 0 ORDER BY id"
+            params.extend(sorted(include_categories))
+        if exclude_categories:
+            placeholders = ",".join("?" for _ in exclude_categories)
+            where.append(
+                "NOT EXISTS ("
+                "SELECT 1 FROM classifications xc "
+                "WHERE xc.bookmark_id = b.id AND xc.category_slug IN "
+                f"({placeholders})"
+                ")"
             )
-        )
+            params.extend(sorted(exclude_categories))
+        if needs_review is not None:
+            where.append("b.needs_review = ?")
+            params.append(1 if needs_review else 0)
+        if review_state:
+            where.append("b.review_state = ?")
+            params.append(review_state)
+
+        sql = f"SELECT DISTINCT b.* FROM bookmarks b {' '.join(joins)}"
+        sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY b.id"
+        if limit is not None:
+            sql += " LIMIT ?"
+            params.append(int(limit))
+        return list(self.conn.execute(sql, params))
 
     def get_bookmark(self, bookmark_id: int) -> sqlite3.Row | None:
         return self.conn.execute("SELECT * FROM bookmarks WHERE id = ?", (bookmark_id,)).fetchone()
