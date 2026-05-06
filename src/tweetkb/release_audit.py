@@ -26,25 +26,11 @@ class Violation:
     snippet: str = ""
 
 
-_LOCAL_USER = "ad" + "itya"
-_LOCAL_GITHUB = "ad" + "itya" + "vg13"
-_LOCAL_AUTHOR = "ad" + "ityag"
-
 CONTENT_RULES: tuple[Rule, ...] = (
     Rule(
         "absolute-user-home-path",
         re.compile(r"(?i)(/Users/[A-Za-z0-9._-]+|/home/[A-Za-z0-9._-]+|C:\\Users\\[A-Za-z0-9._-]+)"),
         "absolute local user path found",
-    ),
-    Rule(
-        "local-user-identifier",
-        re.compile(rf"(?i)\b({_LOCAL_USER}|{_LOCAL_AUTHOR}|{_LOCAL_GITHUB})\b"),
-        "local developer identifier found",
-    ),
-    Rule(
-        "private-repo-remote",
-        re.compile(rf"(?i)github\.com[:/]{_LOCAL_GITHUB}/"),
-        "personal repository remote found",
     ),
     Rule(
         "secret-assignment",

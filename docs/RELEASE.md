@@ -15,7 +15,7 @@ Expected tracked state:
 - No exported vaults
 - No `.env` or local config
 - No absolute user home paths
-- No personal repository remotes in tracked files
+- No private local repository remotes in tracked files
 - No committed API keys, tokens, passwords, cookies, or bearer strings
 
 If you plan to zip the working directory instead of using `git archive`, run:

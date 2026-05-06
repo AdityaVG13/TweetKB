@@ -46,7 +46,7 @@ Official `uv` installation options: <https://docs.astral.sh/uv/getting-started/i
 ## Quickstart
 
 ```bash
-git clone <repo-url> TweetKB
+git clone https://github.com/AdityaVG13/TweetKB.git TweetKB
 cd TweetKB
 uv sync --extra dev
 uv run tweetkb init
@@ -156,7 +156,7 @@ Rules:
 
 Install and verify:
 1. Ensure `uv` exists. If missing, install it from the official Astral docs.
-2. Run: git clone <repo-url> TweetKB
+2. Run: git clone https://github.com/AdityaVG13/TweetKB.git TweetKB
 3. Run: cd TweetKB
 4. Run: uv sync --extra dev
 5. Run: uv run tweetkb --db /tmp/tweetkb-smoke.sqlite3 init
@@ -171,7 +171,7 @@ Success means the CLI works, tests pass, lint passes, and release audit passes.
 Shell-only version:
 
 ```bash
-git clone <repo-url> TweetKB
+git clone https://github.com/AdityaVG13/TweetKB.git TweetKB
 cd TweetKB
 uv sync --extra dev
 uv run tweetkb --db /tmp/tweetkb-smoke.sqlite3 init
