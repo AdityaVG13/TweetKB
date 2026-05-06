@@ -159,7 +159,7 @@ Install and verify:
 2. Run: git clone <repo-url> TweetKB
 3. Run: cd TweetKB
 4. Run: uv sync --extra dev
-5. Run: uv run tweetkb init --db /tmp/tweetkb-smoke.sqlite3
+5. Run: uv run tweetkb --db /tmp/tweetkb-smoke.sqlite3 init
 6. Run: uv run tweetkb --help
 7. Run: uv run pytest
 8. Run: uv run ruff check .
@@ -174,7 +174,7 @@ Shell-only version:
 git clone <repo-url> TweetKB
 cd TweetKB
 uv sync --extra dev
-uv run tweetkb init --db /tmp/tweetkb-smoke.sqlite3
+uv run tweetkb --db /tmp/tweetkb-smoke.sqlite3 init
 uv run tweetkb --help
 uv run pytest
 uv run ruff check .
