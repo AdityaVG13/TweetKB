@@ -53,6 +53,17 @@ uv run tweetkb init
 uv run tweetkb --help
 ```
 
+Run the guided terminal menu:
+
+```bash
+uv run tweetkb
+```
+
+The menu covers collection, analysis, selected category runs, export, review,
+stats, clustering, project ideas, compression, the review server, doctor, and
+release audit. Every menu action runs the same underlying `tweetkb ...` command
+shown on screen.
+
 Optional local config:
 
 ```bash

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import sys
 from pathlib import Path
 
@@ -21,6 +22,10 @@ from .server import ReviewServer
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if not argv:
+        return _interactive_menu()
+
     parser = argparse.ArgumentParser(prog="tweetkb")
     parser.add_argument("--db", type=Path, default=None)
     parser.add_argument("--browser-app", default=None)
@@ -192,6 +197,234 @@ def main(argv: list[str] | None = None) -> int:
         if "--debug" in sys.argv:
             raise
         return 1
+
+
+def _interactive_menu() -> int:
+    print("TweetKB")
+    print("Local bookmark knowledge base")
+    while True:
+        print(
+            "\n".join(
+                [
+                    "",
+                    "1. Initialize database",
+                    "2. Open login browser",
+                    "3. Collect bookmarks",
+                    "4. Analyze bookmarks",
+                    "5. Enrich saved bookmarks",
+                    "6. Export",
+                    "7. Review",
+                    "8. Stats",
+                    "9. Generate clusters",
+                    "10. Generate project ideas",
+                    "11. Export graph",
+                    "12. TweetZip compression",
+                    "13. Start review UI",
+                    "14. Doctor",
+                    "15. Release audit",
+                    "16. Run custom command",
+                    "0. Quit",
+                ]
+            )
+        )
+        choice = input("Select: ").strip().lower()
+        if choice in {"0", "q", "quit", "exit"}:
+            return 0
+        command = _interactive_command_for_choice(choice)
+        if command is None:
+            print("Unknown selection.")
+            continue
+        if not command:
+            continue
+        print(f"$ tweetkb {' '.join(shlex.quote(part) for part in command)}")
+        code = main(command)
+        if code:
+            print(f"Command exited with status {code}.")
+
+
+def _interactive_command_for_choice(choice: str, input_fn=input) -> list[str] | None:
+    if choice == "1":
+        return ["init"]
+    if choice == "2":
+        command = ["login"]
+        if _prompt_bool("Use normal Chrome profile?", default=False, input_fn=input_fn):
+            command.append("--normal-chrome")
+        return command
+    if choice == "3":
+        command = ["collect"]
+        mode = _prompt_choice(
+            "Collection mode",
+            ["browser-harness", "normal-chrome", "apple-events"],
+            default="browser-harness",
+            input_fn=input_fn,
+        )
+        if mode == "normal-chrome":
+            command.extend(["--normal-chrome", "--existing-tab"])
+        elif mode == "apple-events":
+            command.append("--apple-events")
+        if _prompt_bool("Collect all bookmarks?", default=False, input_fn=input_fn):
+            command.append("--all")
+        else:
+            command.extend(["--limit", str(_prompt_int("Limit", 100, input_fn))])
+        command.extend(["--batch-size", str(_prompt_int("Batch size", 20, input_fn))])
+        command.extend(["--wait", str(_prompt_float("Wait seconds", 1.5, input_fn))])
+        return command
+    if choice == "4":
+        command = ["analyze"]
+        stage = _prompt_choice("Stage", ["classify", "all", "entities", "embed"], default="classify", input_fn=input_fn)
+        command.extend(["--stage", stage])
+        if stage in {"all", "embed"}:
+            provider = _prompt_choice("Embedding provider", ["local-hash", "ollama", "openai"], "local-hash", input_fn)
+            command.extend(["--provider", provider])
+        if not _prompt_bool("Changed only?", default=True, input_fn=input_fn):
+            command.append("--no-changed-only")
+        _append_optional_arg(command, "--include-category", _prompt_text("Include categories CSV", "", input_fn))
+        _append_optional_arg(command, "--exclude-category", _prompt_text("Exclude categories CSV", "", input_fn))
+        review_filter = _prompt_choice("Review filter", ["any", "needs-review", "reviewed"], "any", input_fn)
+        if review_filter == "needs-review":
+            command.append("--needs-review")
+        elif review_filter == "reviewed":
+            command.append("--reviewed")
+        _append_optional_arg(command, "--review-state", _prompt_text("Review state", "", input_fn))
+        limit = _prompt_text("Limit", "", input_fn)
+        if limit:
+            command.extend(["--limit", limit])
+        return command
+    if choice == "5":
+        command = ["enrich", "--apple-events"]
+        _append_optional_arg(command, "--category", _prompt_text("Category", "", input_fn))
+        _append_optional_arg(command, "--since", _prompt_text("Since YYYY-MM-DD", "", input_fn))
+        command.extend(["--limit", str(_prompt_int("Limit", 25, input_fn))])
+        command.extend(["--wait", str(_prompt_float("Wait seconds", 2.0, input_fn))])
+        if _prompt_bool("Include outbound links?", default=False, input_fn=input_fn):
+            command.append("--include-links")
+            command.extend(["--max-links", str(_prompt_int("Max links", 3, input_fn))])
+        if _prompt_bool("Re-enrich existing rows?", default=False, input_fn=input_fn):
+            command.append("--all")
+        return command
+    if choice == "6":
+        command = ["export"]
+        adapter = _prompt_choice("Adapter", sorted(ADAPTERS.keys()), "obsidian", input_fn)
+        command.extend(["--adapter", adapter])
+        default_out = "./obsidian-vault" if adapter == "obsidian" else f"./exports/{adapter}"
+        command.extend(["--vault", _prompt_text("Output path", default_out, input_fn)])
+        _append_optional_arg(command, "--include-category", _prompt_text("Include categories CSV", "", input_fn))
+        _append_optional_arg(command, "--exclude-category", _prompt_text("Exclude categories CSV", "", input_fn))
+        if _prompt_bool("Exclude needs-review rows?", default=False, input_fn=input_fn):
+            command.append("--exclude-review")
+        min_confidence = _prompt_text("Min confidence", "", input_fn)
+        if min_confidence:
+            command.extend(["--min-confidence", min_confidence])
+        return command
+    if choice == "7":
+        action = _prompt_choice("Review action", ["list", "junk", "open-junk", "approve", "exclude", "tag"], "list", input_fn)
+        command = ["review", action]
+        if action in {"list", "junk", "open-junk"}:
+            if action == "list":
+                _append_optional_arg(command, "--category", _prompt_text("Category", "", input_fn))
+            command.extend(["--limit", str(_prompt_int("Limit", 50 if action != "open-junk" else 10, input_fn))])
+        elif action in {"approve", "exclude"}:
+            command.append(_prompt_text("Status ID", "", input_fn))
+        elif action == "tag":
+            command.append(_prompt_text("Status ID", "", input_fn))
+            command.append(_prompt_text("Tag", "", input_fn))
+        return command
+    if choice == "8":
+        return ["stats"]
+    if choice == "9":
+        return [
+            "cluster",
+            "--min-size",
+            str(_prompt_int("Min size", 3, input_fn)),
+            "--min-confidence",
+            str(_prompt_float("Min confidence", 0.4, input_fn)),
+        ]
+    if choice == "10":
+        return ["projects", "--min-evidence", str(_prompt_int("Min evidence", 3, input_fn))]
+    if choice == "11":
+        return ["graph", "export", "--out", _prompt_text("Output path", "exports/graph.json", input_fn)]
+    if choice == "12":
+        action = _prompt_choice("Compression action", ["benchmark", "export", "verify", "inspect", "decompress"], "benchmark", input_fn)
+        command = ["compress", action]
+        if action == "export":
+            command.extend(["--out", _prompt_text("Output .twz", "exports/bookmarks.twz", input_fn)])
+        elif action in {"verify", "inspect"}:
+            command.append(_prompt_text("Input .twz", "exports/bookmarks.twz", input_fn))
+        elif action == "decompress":
+            command.append(_prompt_text("Input .twz", "exports/bookmarks.twz", input_fn))
+            command.extend(["--out", _prompt_text("Output JSONL", "exports/bookmarks.jsonl", input_fn)])
+        return command
+    if choice == "13":
+        return [
+            "serve",
+            "--host",
+            _prompt_text("Host", "127.0.0.1", input_fn),
+            "--port",
+            str(_prompt_int("Port", 8765, input_fn)),
+        ]
+    if choice == "14":
+        return ["doctor"]
+    if choice == "15":
+        command = ["release-audit"]
+        if _prompt_bool("Strict worktree scan?", default=False, input_fn=input_fn):
+            command.append("--strict-worktree")
+        return command
+    if choice == "16":
+        raw = _prompt_text("Command after `tweetkb`", "", input_fn)
+        return shlex.split(raw) if raw else []
+    return None
+
+
+def _prompt_text(prompt: str, default: str, input_fn=input) -> str:
+    suffix = f" [{default}]" if default else ""
+    value = input_fn(f"{prompt}{suffix}: ").strip()
+    return value or default
+
+
+def _prompt_int(prompt: str, default: int, input_fn=input) -> int:
+    while True:
+        value = _prompt_text(prompt, str(default), input_fn)
+        try:
+            return int(value)
+        except ValueError:
+            print("Enter a whole number.")
+
+
+def _prompt_float(prompt: str, default: float, input_fn=input) -> float:
+    while True:
+        value = _prompt_text(prompt, str(default), input_fn)
+        try:
+            return float(value)
+        except ValueError:
+            print("Enter a number.")
+
+
+def _prompt_bool(prompt: str, default: bool, input_fn=input) -> bool:
+    default_text = "Y/n" if default else "y/N"
+    while True:
+        value = input_fn(f"{prompt} [{default_text}]: ").strip().lower()
+        if not value:
+            return default
+        if value in {"y", "yes"}:
+            return True
+        if value in {"n", "no"}:
+            return False
+        print("Enter yes or no.")
+
+
+def _prompt_choice(prompt: str, choices: list[str], default: str, input_fn=input) -> str:
+    choice_text = "/".join(choices)
+    while True:
+        value = input_fn(f"{prompt} ({choice_text}) [{default}]: ").strip()
+        value = value or default
+        if value in choices:
+            return value
+        print(f"Choose one of: {choice_text}")
+
+
+def _append_optional_arg(command: list[str], flag: str, value: str) -> None:
+    if value:
+        command.extend([flag, value])
 
 
 def _dispatch(args, db_path: Path) -> int:
