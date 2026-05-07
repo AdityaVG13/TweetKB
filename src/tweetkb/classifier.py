@@ -5,6 +5,8 @@ import re
 from collections import Counter
 from typing import Any
 
+from .conversation import looks_like_question
+
 CATEGORIES = (
     "ai-agents",
     "coding",
@@ -231,7 +233,8 @@ def classify_text(text: str, links: list[str] | tuple[str, ...] = ()) -> dict[st
     primary = categories[0]["slug"] if categories else "misc"
     primary_conf = categories[0]["confidence"] if categories else 0.1
 
-    tags = sorted({primary, *top_terms(text), *domain_tags(links)})
+    extra_tags = {"question"} if looks_like_question(text) else set()
+    tags = sorted({primary, *top_terms(text), *domain_tags(links), *extra_tags})
     entities = extract_entities(text, links)
 
     needs_review = (
@@ -263,6 +266,8 @@ def summarize(text: str, max_len: int = 220) -> str:
 
 
 def why_it_matters(text: str, category: str, links: list[str] | tuple[str, ...]) -> str:
+    if looks_like_question(text):
+        return "This bookmark asks a question, so captured thread and reply context can turn the discussion into reusable knowledge."
     if category == "misc":
         return "Potentially useful bookmark, but it needs manual review before it becomes durable knowledge."
     domains = sorted({link_domain(u) for u in links if link_domain(u)})

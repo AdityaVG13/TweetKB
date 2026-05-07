@@ -220,12 +220,22 @@ uv run tweetkb analyze --stage all --reviewed
 ## Enrich saved posts
 
 `enrich` opens saved status URLs in logged-in Chrome and captures long-form post
-or article text. It can also capture outbound linked pages.
+or article text. It also captures visible thread/reply context by default when
+the bookmarked tweet looks like a question, so answers in the discussion become
+part of later analysis.
 
 ```bash
-uv run tweetkb enrich --apple-events --limit 100 --wait 4 --include-links --max-links 3
+uv run tweetkb enrich --apple-events --limit 100 --wait 4
+uv run tweetkb enrich --apple-events --include-conversation always --max-conversation-items 20
+uv run tweetkb enrich --apple-events --include-links --max-links 3
 uv run tweetkb analyze --stage all
 ```
+
+Conversation modes:
+
+- `auto`: capture thread/reply context for question-like bookmarks
+- `always`: capture visible thread/reply context for every enriched bookmark
+- `never`: capture only the bookmarked status/article
 
 ## Export
 

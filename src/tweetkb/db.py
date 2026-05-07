@@ -251,7 +251,9 @@ class Store:
                  CASE source_type
                    WHEN 'x-article' THEN 0
                    WHEN 'x-status' THEN 1
-                   ELSE 2
+                   WHEN 'x-conversation' THEN 2
+                   WHEN 'linked-page' THEN 3
+                   ELSE 4
                  END,
                  captured_at DESC
                LIMIT 1""",
@@ -267,7 +269,9 @@ class Store:
                      CASE source_type
                        WHEN 'x-article' THEN 0
                        WHEN 'x-status' THEN 1
-                       ELSE 2
+                       WHEN 'x-conversation' THEN 2
+                       WHEN 'linked-page' THEN 3
+                       ELSE 4
                      END,
                      captured_at DESC""",
                 (bookmark_id,),

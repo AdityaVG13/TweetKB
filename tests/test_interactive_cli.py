@@ -36,6 +36,26 @@ def test_interactive_analyze_builds_filtered_command():
     ]
 
 
+def test_interactive_enrich_builds_conversation_command():
+    command = _interactive_command_for_choice(
+        "5",
+        input_fn=_answers(["", "", "10", "1.5", "always", "20", "n", "n"]),
+    )
+
+    assert command == [
+        "enrich",
+        "--apple-events",
+        "--limit",
+        "10",
+        "--wait",
+        "1.5",
+        "--include-conversation",
+        "always",
+        "--max-conversation-items",
+        "20",
+    ]
+
+
 def test_interactive_export_builds_obsidian_command():
     command = _interactive_command_for_choice(
         "6",

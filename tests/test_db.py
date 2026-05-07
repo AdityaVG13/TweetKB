@@ -68,13 +68,20 @@ def test_content_enrichment_roundtrip(tmp_path: Path):
     assert row["content_text"] == "full tweet and article body"
     store.set_content_enrichment(
         bookmark_id,
+        "https://x.com/a/status/1#conversation",
+        "thread and reply body",
+        source_type="x-conversation",
+        title="Thread context",
+    )
+    store.set_content_enrichment(
+        bookmark_id,
         "https://example.com/story",
         "linked story body",
         source_type="linked-page",
         title="Story",
     )
     rows = store.get_content_enrichments(bookmark_id)
-    assert [r["source_type"] for r in rows] == ["x-status", "linked-page"]
+    assert [r["source_type"] for r in rows] == ["x-status", "x-conversation", "linked-page"]
     pending = store.list_bookmarks_for_enrichment()
     assert pending == []
     store.close()

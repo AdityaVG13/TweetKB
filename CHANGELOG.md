@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0
+
+- Added question-aware thread/reply context enrichment for X conversations.
+
 ## 0.3.0
 
 - Renamed the public package metadata to `tweetkb`.

@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
+from .conversation import format_conversation_context, looks_like_question, should_capture_conversation
+
 BLOCKED_LINK_HOSTS = {
     "business.x.com",
     "x.com",
@@ -32,6 +34,7 @@ BLOCKED_LINK_TEXT = {
 @dataclass
 class EnrichResult:
     enriched: int = 0
+    conversations: int = 0
     skipped: int = 0
     failed: int = 0
 
@@ -53,19 +56,26 @@ def enrich_with_apple_events(
     wait_seconds: float = 2.0,
     include_links: bool = False,
     max_links: int = 3,
+    include_conversation: str = "auto",
+    max_conversation_items: int = 12,
     progress: Callable[[str], None] | None = None,
 ) -> EnrichResult:
     result = EnrichResult()
     total = len(bookmarks)
     if progress:
-        progress(f"enrich: selected={total} include_links={include_links}")
+        progress(f"enrich: selected={total} include_links={include_links} include_conversation={include_conversation}")
     for index, row in enumerate(bookmarks, start=1):
         bookmark_id = int(row["id"])
         status_url = row["status_url"]
         if progress:
             progress(f"enrich: {index}/{total} status {status_url}")
         try:
-            payload = capture_x_content_with_apple_events(status_url, browser_app, wait_seconds)
+            payload = capture_x_content_with_apple_events(
+                status_url,
+                browser_app,
+                wait_seconds,
+                include_conversation=include_conversation != "never",
+            )
         except (RuntimeError, ValueError):
             result.failed += 1
             continue
@@ -90,6 +100,31 @@ def enrich_with_apple_events(
             result.enriched += 1
         else:
             result.skipped += 1
+
+        bookmark_text = "\n".join([row["tweet_text"] or "", row["raw_text"] or "", content])
+        if should_capture_conversation(bookmark_text, payload, mode=include_conversation):
+            conversation_text = format_conversation_context(payload, max_items=max_conversation_items)
+            if conversation_text:
+                if progress:
+                    question_suffix = " question" if looks_like_question(bookmark_text) else ""
+                    progress(f"enrich: {index}/{total} conversation context{question_suffix}")
+                if store.set_content_enrichment(
+                    bookmark_id=bookmark_id,
+                    source_url=(payload.get("url") or status_url) + "#conversation",
+                    source_type="x-conversation",
+                    title="X thread/reply context",
+                    content_text=conversation_text,
+                    metadata={
+                        "status_url": status_url,
+                        "mode": include_conversation,
+                        "is_question": looks_like_question(bookmark_text),
+                        "item_count": len(payload.get("conversation_items") or []),
+                        "content_length": len(conversation_text),
+                    },
+                ):
+                    result.conversations += 1
+                else:
+                    result.skipped += 1
 
         if include_links:
             links = _candidate_outbound_links(payload.get("outbound_links", []), max_links=max_links)
@@ -162,7 +197,9 @@ def capture_x_content_with_apple_events(
     status_url: str,
     browser_app: str = "Google Chrome",
     wait_seconds: float = 2.0,
+    include_conversation: bool = False,
 ) -> dict[str, Any]:
+    status_id = str(status_url).split("/status/")[-1].split("?")[0].split("/")[0]
     click_js = r"""
 (() => {
   const links = Array.from(document.querySelectorAll('a[href]'));
@@ -176,6 +213,7 @@ def capture_x_content_with_apple_events(
 """
     extract_js = r"""
 (() => {
+  const targetStatusId = __TWEETKB_STATUS_ID__;
   const textOf = (node) => node ? (node.innerText || node.textContent || '').trim() : '';
   const unique = (items) => Array.from(new Set(items.map(x => (x || '').trim()).filter(Boolean)));
   const uniqueLinks = (items) => {
@@ -186,7 +224,34 @@ def capture_x_content_with_apple_events(
       return true;
     });
   };
+  const uniqueItems = (items) => {
+    const seen = new Set();
+    return items.filter(item => {
+      if (!item || !item.text) return false;
+      const key = item.status_url || item.text.slice(0, 140);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
   const tweetTexts = unique(Array.from(document.querySelectorAll('[data-testid="tweetText"]')).map(textOf));
+  const articles = Array.from(document.querySelectorAll('article'));
+  const conversationItems = uniqueItems(articles.map((article, index) => {
+    const articleTexts = unique(Array.from(article.querySelectorAll('[data-testid="tweetText"]')).map(textOf));
+    const text = (articleTexts.join('\n\n').trim() || textOf(article)).replace(/\n{3,}/g, '\n\n').trim();
+    const statusLink = Array.from(article.querySelectorAll('a[href*="/status/"]')).map(a => {
+      try { return new URL(a.getAttribute('href'), location.origin).href; } catch (_) { return ''; }
+    }).find(Boolean) || '';
+    const authorLink = Array.from(article.querySelectorAll('a[href^="/"]')).map(a => a.getAttribute('href') || '')
+      .find(href => /^\/[^/?#]+$/.test(href) && !href.includes('/i/')) || '';
+    const isBookmarked = Boolean(targetStatusId && statusLink.includes(`/status/${targetStatusId}`));
+    return {
+      role: isBookmarked ? 'bookmarked' : 'thread-or-reply',
+      author_handle: authorLink.replace(/^\//, ''),
+      status_url: statusLink,
+      text
+    };
+  }));
   const articleLike = [
     document.querySelector('[data-testid="article"]'),
     document.querySelector('article'),
@@ -215,9 +280,16 @@ def capture_x_content_with_apple_events(
     source_type: /\/i\/article\//.test(location.href) ? 'x-article' : 'x-status',
     content_text: content,
     tweet_texts: tweetTexts,
+    conversation_items: conversationItems,
     outbound_links: uniqueLinks(links),
     content_length: content.length
   });
+})()
+""".replace("__TWEETKB_STATUS_ID__", json.dumps(status_id))
+    conversation_scroll_js = r"""
+(() => {
+  window.scrollTo(0, Math.max(0, window.innerHeight * 0.8));
+  return true;
 })()
 """
     script = f"""
@@ -235,15 +307,21 @@ def capture_x_content_with_apple_events(
           tell active tab of front window
             set currentUrl to execute javascript "location.href"
           end tell
-          if currentUrl contains {json.dumps(str(status_url).split("/status/")[-1])} then exit repeat
+          if currentUrl contains {json.dumps(status_id)} then exit repeat
         end repeat
         delay {float(wait_seconds)}
         tell active tab of front window
           set currentUrl to execute javascript "location.href"
-          if currentUrl does not contain {json.dumps(str(status_url).split("/status/")[-1])} then error "Chrome did not navigate to requested status URL"
+          if currentUrl does not contain {json.dumps(status_id)} then error "Chrome did not navigate to requested status URL"
           set clickedArticle to execute javascript {json.dumps(click_js)}
         end tell
         if clickedArticle is true then delay {float(wait_seconds)}
+        if {str(bool(include_conversation)).lower()} is true and clickedArticle is false then
+          tell active tab of front window
+            execute javascript {json.dumps(conversation_scroll_js)}
+          end tell
+          delay {float(wait_seconds)}
+        end if
         tell active tab of front window
           set rawPayload to execute javascript {json.dumps(extract_js)}
         end tell
@@ -262,7 +340,6 @@ def capture_x_content_with_apple_events(
             except json.JSONDecodeError as exc:
                 raise RuntimeError(f"Invalid JSON payload from Chrome: {line[-500:]}") from exc
             final_url = payload.get("url") or ""
-            status_id = str(status_url).split("/status/")[-1].split("?")[0]
             if status_id not in final_url and "/i/article/" not in final_url:
                 raise RuntimeError(f"Chrome ended on unexpected URL: {final_url}")
             return payload
