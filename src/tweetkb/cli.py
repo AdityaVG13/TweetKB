@@ -618,6 +618,18 @@ def _dispatch(args, db_path: Path) -> int:
             missing_only=not args.all,
             missing_source_type="image-analysis" if args.include_media else None,
         )
+        target = "image-analysis" if args.include_media else "text/article"
+        mode = "missing" if not args.all else "all matching"
+        print(
+            f"enrich: selecting {len(bookmarks)} {mode} {target} bookmarks "
+            f"newest collected/bookmark-page order first",
+            flush=True,
+        )
+        for row in bookmarks[:5]:
+            text = " ".join((row["tweet_text"] or row["raw_text"] or "").split())[:90]
+            print(f"enrich: queued {row['status_id']} {row['status_url']} {text}", flush=True)
+        if len(bookmarks) > 5:
+            print(f"enrich: ... {len(bookmarks) - 5} more queued", flush=True)
         result = enrich_with_apple_events(
             store,
             bookmarks,

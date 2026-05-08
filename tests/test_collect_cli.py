@@ -65,8 +65,22 @@ def test_browser_harness_all_script_is_unbounded(tmp_path):
 
     assert "target_limit = None" in script
     assert "while batches < 5000 and stagnant < 10:" in script
+    assert "window.__tweetkbOrder = []" in script
     assert "tweetkb progress:" in script
     compile(script, "<browser-harness-script>", "exec")
+
+
+def test_extractor_preserves_visual_status_order(tmp_path):
+    collector = BrowserHarnessCollector(
+        store=object(),
+        checkpoint=Checkpoint(tmp_path / "checkpoint.json"),
+    )
+
+    script = collector._extractor_js()
+
+    assert "window.__tweetkbOrder = window.__tweetkbOrder || []" in script
+    assert "window.__tweetkbOrder.push(item.status_id)" in script
+    assert "window.__tweetkbOrder.map(id => window.__tweetkbSeen[id])" in script
 
 
 def test_browser_harness_all_script_stops_after_existing_history(tmp_path):

@@ -302,10 +302,13 @@ spec instead of reading plain Markdown files.
 TweetKB builds exports from the local SQLite database:
 
 1. Collection stores the bookmarked status URL, author, visible tweet text, raw
-   article text, timestamps, and mentioned links.
+   article text, timestamps, and mentioned links. Collection dedupes by X status
+   ID, so seeing the same bookmark again updates the existing row.
 2. Enrichment opens saved X URLs in logged-in Chrome. It captures fuller status
    or article text, optional outbound linked pages, question-aware thread/reply
-   context, and visible image metadata when the page exposes it.
+   context, and visible image metadata when the page exposes it. By default it
+   selects only bookmarks missing the requested enrichment, up to the limit,
+   newest collected/bookmark-page order first. It is not classification.
 3. Analysis joins the original tweet text with captured enrichments, hashes that
    combined text, and records per-stage analysis state so changed-only runs skip
    unchanged classification, entity extraction, and embedding work. Then it

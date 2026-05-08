@@ -9,6 +9,7 @@ import textwrap
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -192,7 +193,9 @@ class BrowserHarnessCollector:
         changed = 0
         unchanged = 0
         status_ids: list[str] = []
-        for item in payload.get("items", []):
+        captured_at_base = datetime.now(timezone.utc)
+        for index, item in enumerate(payload.get("items", [])):
+            item.setdefault("captured_at", (captured_at_base - timedelta(microseconds=index)).isoformat())
             upserted = self.store.upsert_bookmark_with_status(item)
             bookmark_id = upserted[0] if upserted else None
             status_id = item.get("status_id") or extract_status_id(item.get("status_url"))
@@ -289,7 +292,10 @@ class BrowserHarnessCollector:
         max_batches = 5000 if all_bookmarks else 200
         limit_check = "false" if all_bookmarks else f"currentCount >= {int(limit or 100)}"
         known_json = json.dumps({status_id: True for status_id in sorted(known_status_ids or set())})
-        reset_js = f"window.__tweetkbSeen = {{}}; window.__tweetkbKnown = {known_json}; window.scrollTo(0, 0)"
+        reset_js = (
+            f"window.__tweetkbSeen = {{}}; window.__tweetkbOrder = []; "
+            f"window.__tweetkbKnown = {known_json}; window.scrollTo(0, 0)"
+        )
         stop_existing_check = (
             "newCount = previousNewCount and currentCount > 0" if all_bookmarks and stop_at_existing else "false"
         )
@@ -398,6 +404,7 @@ class BrowserHarnessCollector:
   };
   const articles = Array.from(document.querySelectorAll('article'));
   window.__tweetkbSeen = window.__tweetkbSeen || {};
+  window.__tweetkbOrder = window.__tweetkbOrder || [];
   articles.map((article) => {
     const links = Array.from(article.querySelectorAll('a[href]')).map(a => abs(a.getAttribute('href'))).filter(Boolean);
     const statusUrl = links.find(h => /\/status\/\d+/.test(h)) || '';
@@ -418,9 +425,12 @@ class BrowserHarnessCollector:
       created_at: time ? (time.getAttribute('datetime') || '') : '',
       links: Array.from(new Set(links)).filter(h => !h.includes('/analytics'))
     };
-    if (item.status_id && item.tweet_text) window.__tweetkbSeen[item.status_id] = item;
+    if (item.status_id && item.tweet_text) {
+      if (!window.__tweetkbSeen[item.status_id]) window.__tweetkbOrder.push(item.status_id);
+      window.__tweetkbSeen[item.status_id] = item;
+    }
   });
-  return JSON.stringify(Object.values(window.__tweetkbSeen));
+  return JSON.stringify(window.__tweetkbOrder.map(id => window.__tweetkbSeen[id]).filter(Boolean));
 })()
 """
 
@@ -485,6 +495,7 @@ class BrowserHarnessCollector:
             if "login" in info.get("url", "").lower() or "flow/login" in info.get("url", ""):
                 print("TWEETKB_JSON=" + json.dumps({{"login_required": True, "url": info.get("url")}}))
             else:
+                eval_in_tab("window.__tweetkbSeen = {{}}; window.__tweetkbOrder = []; window.scrollTo(0, 0)")
                 seen = {{}}
                 batches = 0
                 stagnant = 0

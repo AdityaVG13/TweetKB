@@ -38,6 +38,22 @@ def test_upsert_reports_unchanged_existing_rows(tmp_path: Path):
     store.close()
 
 
+def test_upsert_uses_supplied_capture_order_timestamp(tmp_path: Path):
+    store = Store(tmp_path / "db.sqlite3")
+    store.init()
+    store.upsert_bookmark_with_status(
+        {
+            "status_url": "https://x.com/a/status/1",
+            "tweet_text": "first",
+            "captured_at": "2026-05-08T10:00:00+00:00",
+        }
+    )
+
+    row = store.get_bookmark_by_status("1")
+    assert row["captured_at"] == "2026-05-08T10:00:00+00:00"
+    store.close()
+
+
 def test_stats(tmp_path: Path):
     store = Store(tmp_path / "db.sqlite3")
     store.init()

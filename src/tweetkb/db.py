@@ -62,6 +62,7 @@ class Store:
         links = tuple(dict.fromkeys(data.get("links") or ()))
         content_hash = stable_hash("\n".join([status_id, tweet_text, raw_text, json.dumps(links, sort_keys=True)]))
         now = datetime.now(timezone.utc).isoformat()
+        captured_at = data.get("captured_at") or now
 
         row = self.conn.execute("SELECT id, content_hash FROM bookmarks WHERE status_id = ?", (status_id,)).fetchone()
         if row and row["content_hash"] == content_hash:
@@ -111,7 +112,7 @@ class Store:
                 raw_text,
                 data.get("created_at") or "",
                 content_hash,
-                now,
+                captured_at,
                 now,
                 "browser",
             ),
