@@ -2,20 +2,30 @@
 
 Private X/Twitter bookmark knowledge base. Local SQLite. Terminal-first.
 
+<p align="center">
+  <a href="https://ko-fi.com/adityavg13">
+    <img alt="Support TweetKB on Ko-fi" src="https://img.shields.io/badge/Support_on-Ko--fi-ff5f5f?style=for-the-badge&logo=kofi&logoColor=white">
+  </a>
+</p>
+
 TweetKB turns saved X/Twitter bookmarks into something you can search, review,
 classify, enrich, and export. It reads bookmarks from your logged-in browser,
 stores them locally, and writes portable notes for Obsidian, Logseq, Markdown,
-JSONL, or CSV.
+JSONL, CSV, or an interactive HTML analysis spec.
 
 It does not ship with a bookmark database. It does not upload your archive. It
 does not need your X/Twitter password.
 
-## Support
+## Support Open Source
 
-TweetKB is free and open source. If it saves you time, you can support the work
-on Ko-fi: <https://ko-fi.com/adityavg13>
+TweetKB is free, local-first, and open source. If it saves you time or helps you
+turn a messy X bookmark backlog into useful knowledge, you can support ongoing
+work on Ko-fi:
 
-Donations help support more open-source projects and continued maintenance.
+[**Support TweetKB on Ko-fi**](https://ko-fi.com/adityavg13)
+
+Donations help fund maintenance, documentation, testing, screenshots, and future
+open-source projects.
 
 ## What it does
 
@@ -25,7 +35,7 @@ Donations help support more open-source projects and continued maintenance.
 - Lets you analyze only selected categories or review states
 - Extracts entities, links, summaries, and local embeddings
 - Enriches saved posts and optional outbound links
-- Exports to Obsidian, Logseq, Markdown, JSONL, and CSV
+- Exports to Obsidian, Logseq, Markdown, JSONL, CSV, and interactive HTML specs
 - Serves a small local review UI
 - Includes a terminal menu for people who do not want to memorize commands
 - Includes a release audit to catch private paths, runtime data, and secrets
