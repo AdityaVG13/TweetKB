@@ -5,11 +5,13 @@ from .jsonl import export_jsonl
 from .logseq import export_logseq
 from .markdown import export_markdown
 from .obsidian import export_obsidian
+from .spec import export_spec
 
 ADAPTERS = {
     "obsidian": export_obsidian,
     "logseq": export_logseq,
     "markdown": export_markdown,
+    "spec": export_spec,
     "jsonl": export_jsonl,
     "csv": export_csv,
 }

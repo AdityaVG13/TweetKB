@@ -4,6 +4,7 @@ from tweetkb.classifier import classify_text, embed_text
 from tweetkb.db import Store
 from tweetkb.exporters.obsidian import _note_filename as note_filename
 from tweetkb.exporters.obsidian import export_obsidian
+from tweetkb.exporters.spec import export_spec
 
 
 def test_classifier_detects_agents():
@@ -57,6 +58,44 @@ def test_obsidian_export_includes_category(tmp_path: Path):
     count, skipped = export_obsidian(store, tmp_path / "vault", include_categories={"ai-agents"})
     assert count == 1
     assert len(list((tmp_path / "vault" / "Bookmarks").glob("*.md"))) == 1
+    store.close()
+
+
+def test_spec_export_builds_interactive_html(tmp_path: Path):
+    store = Store(tmp_path / "db.sqlite3")
+    store.init()
+    bookmark_id = store.upsert_bookmark(
+        {
+            "status_url": "https://x.com/a/status/1",
+            "tweet_text": "What agent tool should I use?",
+            "links": ["https://example.com/agent-tool"],
+        }
+    )
+    assert bookmark_id
+    result = classify_text("What agent tool should I use?", ["https://example.com/agent-tool"])
+    store.set_classifications(bookmark_id, result["categories"], result["primary"], result["confidence"])
+    store.update_bookmark_analysis(
+        bookmark_id,
+        summary=result.get("summary", ""),
+        why_it_matters=result.get("why_it_matters", ""),
+    )
+    store.set_content_enrichment(
+        bookmark_id,
+        "https://x.com/a/status/1",
+        "Captured thread context",
+        source_type="x-status",
+        title="Full status",
+        metadata={"media": [{"url": "https://pbs.twimg.com/media/test.jpg", "alt": "diagram"}]},
+    )
+
+    count, skipped = export_spec(store, tmp_path / "spec")
+
+    html = (tmp_path / "spec" / "index.html").read_text()
+    assert count == 1
+    assert skipped == 0
+    assert "TweetKB Interactive Analysis Spec" in html
+    assert "https://example.com/agent-tool" in html
+    assert "https://pbs.twimg.com/media/test.jpg" in html
     store.close()
 
 

@@ -3,6 +3,7 @@
 ## 0.4.0
 
 - Added question-aware thread/reply context enrichment for X conversations.
+- Added interactive `spec` export and a menu path for analyze-and-export workflows.
 
 ## 0.3.0
 

@@ -94,6 +94,7 @@ def enrich_with_apple_events(
                 "status_url": status_url,
                 "article_clicked": payload.get("article_clicked", False),
                 "content_length": len(content),
+                "media": payload.get("media", []),
             },
         )
         if saved:
@@ -270,6 +271,16 @@ def capture_x_content_with_apple_events(
       return null;
     }
   }).filter(Boolean);
+  const media = uniqueLinks(Array.from(linkRoot.querySelectorAll('img[src]')).map(img => {
+    try {
+      return {
+        url: new URL(img.getAttribute('src'), location.origin).href,
+        alt: (img.getAttribute('alt') || img.getAttribute('aria-label') || '').trim()
+      };
+    } catch (_) {
+      return null;
+    }
+  }).filter(Boolean));
   const content = unique([...tweetTexts, articleLike, mainText])
     .join('\n\n')
     .replace(/\n{3,}/g, '\n\n')
@@ -282,6 +293,7 @@ def capture_x_content_with_apple_events(
     tweet_texts: tweetTexts,
     conversation_items: conversationItems,
     outbound_links: uniqueLinks(links),
+    media,
     content_length: content.length
   });
 })()

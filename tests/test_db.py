@@ -6,12 +6,25 @@ from tweetkb.db import Store
 def test_upsert_deduplicates_status_id(tmp_path: Path):
     store = Store(tmp_path / "db.sqlite3")
     store.init()
-    first = store.upsert_bookmark({"status_url": "https://x.com/a/status/1", "tweet_text": "hello"})
-    second = store.upsert_bookmark({"status_url": "https://x.com/a/status/1", "tweet_text": "hello again"})
+    first = store.upsert_bookmark(
+        {
+            "status_url": "https://x.com/a/status/1",
+            "tweet_text": "hello",
+            "links": ["https://example.com/a"],
+        }
+    )
+    second = store.upsert_bookmark(
+        {
+            "status_url": "https://x.com/a/status/1",
+            "tweet_text": "hello again",
+            "links": ["https://example.com/a", "https://example.com/b"],
+        }
+    )
     rows = store.list_bookmarks()
     assert first == second
     assert len(rows) == 1
     assert rows[0]["tweet_text"] == "hello again"
+    assert [link["url"] for link in store.get_bookmark_links(first)] == ["https://example.com/a", "https://example.com/b"]
     store.close()
 
 

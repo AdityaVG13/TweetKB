@@ -65,6 +65,7 @@ class Store:
 
         row = self.conn.execute("SELECT id, content_hash FROM bookmarks WHERE status_id = ?", (status_id,)).fetchone()
         if row and row["content_hash"] == content_hash:
+            self._store_bookmark_links(int(row["id"]), links)
             return int(row["id"]), False
 
         # Upsert author
@@ -117,7 +118,17 @@ class Store:
         )
         self.conn.commit()
         saved = self.conn.execute("SELECT id FROM bookmarks WHERE status_id = ?", (status_id,)).fetchone()
-        return (int(saved["id"]), True) if saved else None
+        if not saved:
+            return None
+        bookmark_id = int(saved["id"])
+        self._store_bookmark_links(bookmark_id, links)
+        return bookmark_id, True
+
+    def _store_bookmark_links(self, bookmark_id: int, links: tuple[str, ...]) -> None:
+        for url in links:
+            link_id = self.upsert_link(url)
+            if link_id:
+                self.add_bookmark_link(bookmark_id, link_id)
 
     def upsert_link(self, url: str) -> int | None:
         if not url:
@@ -470,7 +481,8 @@ class Store:
             self.conn.execute(
                 """SELECT l.* FROM links l
                    JOIN bookmark_links bl ON bl.link_id = l.id
-                   WHERE bl.bookmark_id = ?""",
+                   WHERE bl.bookmark_id = ?
+                   ORDER BY l.id""",
                 (bookmark_id,),
             )
         )

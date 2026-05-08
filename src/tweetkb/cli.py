@@ -17,6 +17,7 @@ from .exporters.jsonl import export_jsonl
 from .exporters.logseq import export_logseq
 from .exporters.markdown import export_markdown
 from .exporters.obsidian import export_obsidian
+from .exporters.spec import export_spec
 from .graph import export_graph_json
 from .server import ReviewServer
 
@@ -86,6 +87,25 @@ def main(argv: list[str] | None = None) -> int:
     analyze.add_argument("--reviewed", dest="needs_review", action="store_false", help="Analyze only reviewed bookmarks")
     analyze.add_argument("--review-state", default=None, help="Analyze only one review state")
     analyze.add_argument("--limit", type=int, default=None, help="Analyze at most N selected bookmarks")
+
+    # analyze-export
+    analyze_export = sub.add_parser("analyze-export", help="Run analysis, then export to a selected folder")
+    analyze_export.add_argument("--stage", default="all", choices=["all", "classify", "entities", "embed"])
+    analyze_export.add_argument("--provider", default="local-hash", choices=["local-hash", "ollama", "openai"])
+    analyze_export.add_argument("--changed-only", action="store_true", default=True)
+    analyze_export.add_argument("--no-changed-only", dest="changed_only", action="store_false")
+    analyze_export.add_argument("--include-category", default="", help="Analyze/export only selected categories")
+    analyze_export.add_argument("--exclude-category", default="", help="Skip selected categories")
+    analyze_export.add_argument("--needs-review", action="store_true", default=None, help="Analyze/export only rows needing review")
+    analyze_export.add_argument("--reviewed", dest="needs_review", action="store_false", help="Analyze/export only reviewed rows")
+    analyze_export.add_argument("--review-state", default=None, help="Analyze only one review state")
+    analyze_export.add_argument("--limit", type=int, default=None, help="Analyze at most N selected bookmarks")
+    analyze_export.add_argument("--adapter", "-a", default="spec", choices=list(ADAPTERS.keys()))
+    analyze_export.add_argument("--vault", "--out", "-o", type=Path, required=False)
+    analyze_export.add_argument("--exclude-review", action="store_true")
+    analyze_export.add_argument("--min-confidence", type=float, default=0.0)
+    analyze_export.add_argument("--include-projects", action="store_true", default=True)
+    analyze_export.add_argument("--include-clusters", action="store_true", default=False)
 
     # classify (legacy, delegates to analyze)
     classify = sub.add_parser("classify", help="Classify bookmarks (alias for analyze --stage classify)")
@@ -218,6 +238,7 @@ def _interactive_menu() -> int:
                     "2. Open login browser",
                     "3. Collect bookmarks",
                     "4. Analyze bookmarks",
+                    "4e. Analyze + export to folder",
                     "5. Enrich saved bookmarks",
                     "6. Export",
                     "7. Review",
@@ -278,24 +299,12 @@ def _interactive_command_for_choice(choice: str, input_fn=input) -> list[str] | 
         return command
     if choice == "4":
         command = ["analyze"]
-        stage = _prompt_choice("Stage", ["classify", "all", "entities", "embed"], default="classify", input_fn=input_fn)
-        command.extend(["--stage", stage])
-        if stage in {"all", "embed"}:
-            provider = _prompt_choice("Embedding provider", ["local-hash", "ollama", "openai"], "local-hash", input_fn)
-            command.extend(["--provider", provider])
-        if not _prompt_bool("Changed only?", default=True, input_fn=input_fn):
-            command.append("--no-changed-only")
-        _append_optional_arg(command, "--include-category", _prompt_text("Include categories CSV", "", input_fn))
-        _append_optional_arg(command, "--exclude-category", _prompt_text("Exclude categories CSV", "", input_fn))
-        review_filter = _prompt_choice("Review filter", ["any", "needs-review", "reviewed"], "any", input_fn)
-        if review_filter == "needs-review":
-            command.append("--needs-review")
-        elif review_filter == "reviewed":
-            command.append("--reviewed")
-        _append_optional_arg(command, "--review-state", _prompt_text("Review state", "", input_fn))
-        limit = _prompt_text("Limit", "", input_fn)
-        if limit:
-            command.extend(["--limit", limit])
+        _append_interactive_analysis_args(command, input_fn)
+        return command
+    if choice in {"4e", "ae", "analyze-export"}:
+        command = ["analyze-export"]
+        _append_interactive_analysis_args(command, input_fn, default_stage="all")
+        _append_interactive_export_args(command, input_fn, default_adapter="spec")
         return command
     if choice == "5":
         command = ["enrich", "--apple-events"]
@@ -320,17 +329,7 @@ def _interactive_command_for_choice(choice: str, input_fn=input) -> list[str] | 
         return command
     if choice == "6":
         command = ["export"]
-        adapter = _prompt_choice("Adapter", sorted(ADAPTERS.keys()), "obsidian", input_fn)
-        command.extend(["--adapter", adapter])
-        default_out = "./obsidian-vault" if adapter == "obsidian" else f"./exports/{adapter}"
-        command.extend(["--vault", _prompt_text("Output path", default_out, input_fn)])
-        _append_optional_arg(command, "--include-category", _prompt_text("Include categories CSV", "", input_fn))
-        _append_optional_arg(command, "--exclude-category", _prompt_text("Exclude categories CSV", "", input_fn))
-        if _prompt_bool("Exclude needs-review rows?", default=False, input_fn=input_fn):
-            command.append("--exclude-review")
-        min_confidence = _prompt_text("Min confidence", "", input_fn)
-        if min_confidence:
-            command.extend(["--min-confidence", min_confidence])
+        _append_interactive_export_args(command, input_fn)
         return command
     if choice == "7":
         action = _prompt_choice("Review action", ["list", "junk", "open-junk", "approve", "exclude", "tag"], "list", input_fn)
@@ -389,6 +388,42 @@ def _interactive_command_for_choice(choice: str, input_fn=input) -> list[str] | 
         raw = _prompt_text("Command after `tweetkb`", "", input_fn)
         return shlex.split(raw) if raw else []
     return None
+
+
+def _append_interactive_analysis_args(command: list[str], input_fn=input, default_stage: str = "classify") -> None:
+    stage = _prompt_choice("Stage", ["classify", "all", "entities", "embed"], default=default_stage, input_fn=input_fn)
+    command.extend(["--stage", stage])
+    if stage in {"all", "embed"}:
+        provider = _prompt_choice("Embedding provider", ["local-hash", "ollama", "openai"], "local-hash", input_fn)
+        command.extend(["--provider", provider])
+    if not _prompt_bool("Changed only?", default=True, input_fn=input_fn):
+        command.append("--no-changed-only")
+    _append_optional_arg(command, "--include-category", _prompt_text("Include categories CSV", "", input_fn))
+    _append_optional_arg(command, "--exclude-category", _prompt_text("Exclude categories CSV", "", input_fn))
+    review_filter = _prompt_choice("Review filter", ["any", "needs-review", "reviewed"], "any", input_fn)
+    if review_filter == "needs-review":
+        command.append("--needs-review")
+    elif review_filter == "reviewed":
+        command.append("--reviewed")
+    _append_optional_arg(command, "--review-state", _prompt_text("Review state", "", input_fn))
+    limit = _prompt_text("Limit", "", input_fn)
+    if limit:
+        command.extend(["--limit", limit])
+
+
+def _append_interactive_export_args(command: list[str], input_fn=input, default_adapter: str = "obsidian") -> None:
+    adapter = _prompt_choice("Adapter", sorted(ADAPTERS.keys()), default_adapter, input_fn)
+    command.extend(["--adapter", adapter])
+    default_out = "./obsidian-vault" if adapter == "obsidian" else f"./exports/{adapter}"
+    command.extend(["--vault", _prompt_text("Output folder", default_out, input_fn)])
+    if command[0] == "export":
+        _append_optional_arg(command, "--include-category", _prompt_text("Include categories CSV", "", input_fn))
+        _append_optional_arg(command, "--exclude-category", _prompt_text("Exclude categories CSV", "", input_fn))
+    if _prompt_bool("Exclude needs-review rows?", default=False, input_fn=input_fn):
+        command.append("--exclude-review")
+    min_confidence = _prompt_text("Min confidence", "", input_fn)
+    if min_confidence:
+        command.extend(["--min-confidence", min_confidence])
 
 
 def _prompt_text(prompt: str, default: str, input_fn=input) -> str:
@@ -543,28 +578,19 @@ def _dispatch(args, db_path: Path) -> int:
         return 0
 
     if args.cmd == "analyze" or args.cmd == "classify":
-        from .analyzer import run_analysis
         if args.cmd == "classify":
             args.stage = "classify"
             args.provider = "local-hash"
             args.changed_only = False
-        include_cats = _parse_csv_set(args.include_category) or None
-        exclude_cats = _parse_csv_set(args.exclude_category) or None
-        result = run_analysis(
-            store,
-            stage=args.stage,
-            provider=args.provider,
-            changed_only=args.changed_only,
-            include_categories=include_cats,
-            exclude_categories=exclude_cats,
-            needs_review=args.needs_review,
-            review_state=args.review_state,
-            limit=args.limit,
-            progress=_print_progress,
-        )
-        print(f"selected={result['selected']} analyzed={result['total']} classified={result['classified']} "
-              f"entities_added={result['entities_added']} embedded={result['embedded']}")
+        _print_analysis_result(_run_analysis(args, store))
         return 0
+
+    if args.cmd == "analyze-export":
+        _print_analysis_result(_run_analysis(args, store))
+        export_code = _cmd_export(args, store)
+        if export_code == 0:
+            print(f"analysis export folder={args.vault or Path('.')}")
+        return export_code
 
     if args.cmd == "entities":
         from .entities import extract_entities
@@ -633,6 +659,32 @@ def _dispatch(args, db_path: Path) -> int:
         return 0
 
     return 0
+
+
+def _run_analysis(args, store) -> dict:
+    from .analyzer import run_analysis
+
+    include_cats = _parse_csv_set(args.include_category) or None
+    exclude_cats = _parse_csv_set(args.exclude_category) or None
+    return run_analysis(
+        store,
+        stage=args.stage,
+        provider=args.provider,
+        changed_only=args.changed_only,
+        include_categories=include_cats,
+        exclude_categories=exclude_cats,
+        needs_review=args.needs_review,
+        review_state=args.review_state,
+        limit=args.limit,
+        progress=_print_progress,
+    )
+
+
+def _print_analysis_result(result: dict) -> None:
+    print(
+        f"selected={result['selected']} analyzed={result['total']} classified={result['classified']} "
+        f"entities_added={result['entities_added']} embedded={result['embedded']}"
+    )
 
 
 def _make_collector(store, args):
@@ -757,6 +809,16 @@ def _cmd_export(args, store) -> int:
             exclude_categories=exclude_cats,
             exclude_review=args.exclude_review,
             min_confidence=args.min_confidence,
+        )
+    elif adapter == "spec":
+        exported, skipped = export_spec(
+            store, vault_path,
+            include_categories=include_cats,
+            exclude_categories=exclude_cats,
+            exclude_review=args.exclude_review,
+            min_confidence=args.min_confidence,
+            include_projects=args.include_projects,
+            include_clusters=args.include_clusters,
         )
     elif adapter == "jsonl":
         exported, skipped = export_jsonl(

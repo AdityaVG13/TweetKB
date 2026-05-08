@@ -114,9 +114,10 @@ From a source checkout, use `uv run tweetkb`.
 ![TweetKB terminal menu](docs/assets/tweetkb-menu.png)
 
 The menu can initialize the database, open login Chrome, collect bookmarks,
-analyze selected slices, enrich posts, export notes, review bookmarks, show
-stats, generate clusters, mine project ideas, export graphs, run TweetZip, start
-the review UI, run doctor checks, and run the release audit.
+analyze selected slices, analyze and export to a chosen folder, enrich posts,
+export notes, review bookmarks, show stats, generate clusters, mine project
+ideas, export graphs, run TweetZip, start the review UI, run doctor checks, and
+run the release audit.
 
 Every menu action prints the exact `tweetkb ...` command before running it.
 Long-running commands also print progress lines such as selected counts,
@@ -213,6 +214,7 @@ uv run tweetkb analyze --stage all --limit 100
 uv run tweetkb analyze --stage entities --include-category ai-agents,coding
 uv run tweetkb analyze --stage embed --exclude-category misc --needs-review
 uv run tweetkb analyze --stage all --reviewed
+uv run tweetkb analyze-export --stage all --adapter spec --vault ./exports/spec
 ```
 
 ![TweetKB progress output](docs/assets/tweetkb-progress.png)
@@ -241,10 +243,36 @@ Conversation modes:
 
 ```bash
 uv run tweetkb export --adapter obsidian --vault ./obsidian-vault
+uv run tweetkb export --adapter spec --vault ./exports/spec
 uv run tweetkb export --adapter markdown --vault ./exports/markdown --exclude-category misc
 uv run tweetkb export --adapter jsonl --vault ./exports/jsonl --exclude-review
 uv run tweetkb export --adapter csv --vault ./exports/csv --include-category ai-agents,coding,models,tools
 ```
+
+`spec` writes a static `index.html` with search, category filters, expandable
+analysis sections, captured thread/link context, entities, tags, and visible
+media metadata. It is meant for browsing the analysis as an interactive local
+spec instead of reading plain Markdown files.
+
+## How analysis documents are built
+
+TweetKB builds exports from the local SQLite database:
+
+1. Collection stores the bookmarked status URL, author, visible tweet text, raw
+   article text, timestamps, and mentioned links.
+2. Enrichment opens saved X URLs in logged-in Chrome. It captures fuller status
+   or article text, optional outbound linked pages, question-aware thread/reply
+   context, and visible image metadata when the page exposes it.
+3. Analysis joins the original tweet text with captured enrichments, hashes that
+   combined text for changed-only skips, then classifies categories, extracts
+   entities, creates tags/summaries, writes "why it matters", and stores an
+   embedding.
+4. Export turns the stored analysis into the selected format. Markdown/Obsidian
+   write note files. `spec` writes one interactive HTML analysis bundle.
+
+Images are not downloaded, OCRed, or semantically analyzed yet. The spec export
+can show image URLs/alt text captured during enrichment, but the current analysis
+model is text/link/context based.
 
 ## Review
 
