@@ -1,6 +1,6 @@
 [project]
 name = "tweetkb"
-version = "0.4.0"
+version = "0.5.0"
 description = "Local X/Twitter bookmark collector, classifier, knowledgebase, and Obsidian exporter."
 readme = "README.md"
 requires-python = ">=3.11"

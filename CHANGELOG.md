@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.0
+
+- Added normal Chrome and Apple Events collection paths for logged-in X sessions.
+- Added full X article capture during enrichment.
+- Added optional tweet image analysis and media review bundle export.
+- Added `--all` collection stopping when already-saved bookmark history is reached.
+- Added per-stage analysis state so unchanged classify, entity, and embed work is skipped.
+- Preserved visual bookmark order during collection and made enrichment print queued rows.
+- Reordered the interactive menu to match the intended collect, enrich, analyze, export workflow.
+- Improved Browser-Harness/CDP fallback behavior and Apple Events script escaping.
+
 ## 0.4.0
 
 - Added question-aware thread/reply context enrichment for X conversations.

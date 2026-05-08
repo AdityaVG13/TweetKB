@@ -2,7 +2,7 @@
 
 ## Schema Version
 
-Current: **version 2** (2026-04-26)
+Current: **version 4** (2026-05-08)
 Migration system tracks applied migrations in `schema_migrations` table.
 
 ## Core Tables
@@ -170,6 +170,20 @@ Bookmark embedding vectors.
 | updated_at | TEXT NOT NULL | |
 | UNIQUE | (bookmark_id, provider, model) | |
 
+### analysis_state
+Per-stage analysis hashes used for changed-only skips.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | INTEGER PRIMARY KEY | |
+| bookmark_id | INTEGER NOT NULL | FK -> bookmarks.id |
+| stage | TEXT NOT NULL | classify, entities, embed |
+| provider | TEXT NOT NULL DEFAULT '' | Provider for provider-specific stages |
+| content_hash | TEXT NOT NULL | Hash of text/enrichments analyzed for this stage |
+| updated_at | TEXT NOT NULL | |
+| UNIQUE | (bookmark_id, stage, provider) | |
+
+### content_enrichments
 Durable enrichment captures from posts, X Articles, conversations, linked pages,
 and image analysis.
 
