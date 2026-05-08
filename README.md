@@ -2,45 +2,79 @@
 
 Private X/Twitter bookmark knowledge base. Local SQLite. Terminal-first.
 
-<p align="center">
-  <a href="https://ko-fi.com/adityavg13">
-    <img alt="Support TweetKB on Ko-fi" src="https://img.shields.io/badge/Support_on-Ko--fi-ff5f5f?style=for-the-badge&logo=kofi&logoColor=white">
-  </a>
+<p>
+  <a href="https://github.com/AdityaVG13/TweetKB/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/AdityaVG13/TweetKB?style=flat-square"></a>
+  <a href="https://github.com/AdityaVG13/TweetKB/blob/main/LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-2f3437?style=flat-square"></a>
+  <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-2f3437?style=flat-square&logo=python&logoColor=white">
+  <a href="https://ko-fi.com/adityavg13"><img alt="Support TweetKB on Ko-fi" src="https://img.shields.io/badge/support-Ko--fi-ff5f5f?style=flat-square&logo=kofi&logoColor=white"></a>
 </p>
 
-TweetKB turns saved X/Twitter bookmarks into something you can search, review,
-classify, enrich, and export. It reads bookmarks from your logged-in browser,
-stores them locally, and writes portable notes for Obsidian, Logseq, Markdown,
-JSONL, CSV, or an interactive HTML analysis spec.
+TweetKB turns saved X/Twitter bookmarks into a private knowledge base you can
+search, classify, enrich, review, and export. It reads from your logged-in
+browser, stores everything in local SQLite, and writes portable notes for
+Obsidian, Logseq, Markdown, JSONL, CSV, or a searchable HTML analysis spec.
 
-It does not ship with a bookmark database. It does not upload your archive. It
-does not need your X/Twitter password.
+It ships with no bookmark database, never uploads your archive, and never needs
+your X/Twitter password.
+
+| From saved bookmarks | To usable knowledge |
+| --- | --- |
+| Browser collection from X bookmarks | Local SQLite database with review state |
+| Tweet text, raw visible text, links | Categories, entities, summaries, tags |
+| Question posts and threads | Captured reply/context notes for analysis |
+| Linked pages and visible media metadata | Obsidian notes, Markdown, JSONL, CSV, or interactive specs |
+
+## Quick Start
+
+Install as a global `uv` tool:
+
+```bash
+uv tool install git+https://github.com/AdityaVG13/TweetKB.git
+uv tool update-shell
+```
+
+Open a new terminal, then run:
+
+```bash
+tweetkb init
+tweetkb
+```
+
+That gives you the direct `tweetkb` command. No `uv run` needed after install.
+
+Use a source checkout when you want to develop, run tests, or inspect the code:
+
+```bash
+git clone https://github.com/AdityaVG13/TweetKB.git TweetKB
+cd TweetKB
+uv sync --extra dev
+uv run tweetkb init
+uv run tweetkb
+```
+
+## What You Can Build
+
+| Need | Command path |
+| --- | --- |
+| Collect bookmarks from a logged-in browser | `tweetkb collect` |
+| Classify and analyze selected slices | `tweetkb analyze --stage all` |
+| Capture full posts, links, and thread context | `tweetkb enrich --apple-events` |
+| Export an interactive analysis bundle | `tweetkb analyze-export --adapter spec --vault ./exports/spec` |
+| Review or exclude low-confidence items | `tweetkb review list` or `tweetkb serve` |
 
 ## Support Open Source
 
 TweetKB is free, local-first, and open source. If it saves you time or helps you
-turn a messy X bookmark backlog into useful knowledge, you can support ongoing
-work on Ko-fi:
+turn a messy X bookmark backlog into useful knowledge, donations help fund
+maintenance, documentation, testing, screenshots, and future open-source work.
 
-[**Support TweetKB on Ko-fi**](https://ko-fi.com/adityavg13)
+<p>
+  <a href="https://ko-fi.com/adityavg13">
+    <img alt="Support TweetKB on Ko-fi" src="https://img.shields.io/badge/Support_TweetKB_on-Ko--fi-ff5f5f?style=for-the-badge&logo=kofi&logoColor=white">
+  </a>
+</p>
 
-Donations help fund maintenance, documentation, testing, screenshots, and future
-open-source projects.
-
-## What it does
-
-- Collects bookmarks from a logged-in browser session
-- Stores everything in a local SQLite database
-- Classifies bookmarks into useful categories
-- Lets you analyze only selected categories or review states
-- Extracts entities, links, summaries, and local embeddings
-- Enriches saved posts and optional outbound links
-- Exports to Obsidian, Logseq, Markdown, JSONL, CSV, and interactive HTML specs
-- Serves a small local review UI
-- Includes a terminal menu for people who do not want to memorize commands
-- Includes a release audit to catch private paths, runtime data, and secrets
-
-## Privacy model
+## Privacy Model
 
 TweetKB is built around a simple rule: your bookmark archive stays yours.
 
@@ -66,43 +100,6 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 Official `uv` docs: <https://docs.astral.sh/uv/getting-started/installation/>
-
-## Install
-
-Install as a global `uv` tool:
-
-```bash
-uv tool install git+https://github.com/AdityaVG13/TweetKB.git
-uv tool update-shell
-```
-
-Open a new terminal, then run:
-
-```bash
-tweetkb init
-tweetkb
-```
-
-That gives you the direct `tweetkb` command. No `uv run` needed after install.
-
-Use a source checkout when you want to develop, run tests, or inspect the code:
-
-```bash
-git clone https://github.com/AdityaVG13/TweetKB.git TweetKB
-cd TweetKB
-uv sync --extra dev
-uv run tweetkb init
-```
-
-From a source checkout, run commands with `uv run`:
-
-```bash
-uv run tweetkb
-uv run tweetkb stats
-```
-
-If you install the package into an active Python environment, the command is
-available directly as `tweetkb`.
 
 Upgrade a tool install:
 
