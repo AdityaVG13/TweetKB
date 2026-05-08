@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 
 from tweetkb.checkpoint import Checkpoint
 from tweetkb.cli import _dispatch
@@ -211,3 +212,36 @@ def test_apple_events_collect_applies_limit(monkeypatch, tmp_path):
 
     assert result.saved == 1
     assert [item["status_id"] for item in saved_items] == ["1"]
+
+
+def test_apple_events_known_ids_are_escaped_in_applescript(monkeypatch, tmp_path):
+    scripts = []
+
+    class FakeStore:
+        def log_event(self, *_args, **_kwargs):
+            pass
+
+    def fake_run(args, input, **_kwargs):
+        scripts.append(input)
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout='TWEETKB_JSON={"items":[],"batches":0}',
+            stderr="",
+        )
+
+    collector = BrowserHarnessCollector(FakeStore(), checkpoint=Checkpoint(tmp_path / "checkpoint.json"))
+    monkeypatch.setattr("tweetkb.collector.subprocess.run", fake_run)
+
+    collector._collect_with_apple_events(
+        limit=None,
+        batch_size=20,
+        wait_seconds=1.5,
+        all_bookmarks=True,
+        known_status_ids={"1234567890123456789"},
+        stop_at_existing=True,
+    )
+
+    script = scripts[0]
+    assert 'window.__tweetkbKnown = {\\"1234567890123456789\\": true}' in script
+    assert 'window.__tweetkbKnown = {"1234567890123456789": true}' not in script

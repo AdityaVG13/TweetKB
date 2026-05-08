@@ -289,6 +289,7 @@ class BrowserHarnessCollector:
         max_batches = 5000 if all_bookmarks else 200
         limit_check = "false" if all_bookmarks else f"currentCount >= {int(limit or 100)}"
         known_json = json.dumps({status_id: True for status_id in sorted(known_status_ids or set())})
+        reset_js = f"window.__tweetkbSeen = {{}}; window.__tweetkbKnown = {known_json}; window.scrollTo(0, 0)"
         stop_existing_check = (
             "newCount = previousNewCount and currentCount > 0" if all_bookmarks and stop_at_existing else "false"
         )
@@ -307,7 +308,7 @@ class BrowserHarnessCollector:
               repeat while batches < {max_batches}
                 set pageUrl to execute javascript "location.href"
                 if pageUrl contains "flow/login" then return "TWEETKB_JSON=" & "{{\\"login_required\\":true,\\"url\\":\\"" & pageUrl & "\\"}}"
-                if batches = 0 then execute javascript "window.__tweetkbSeen = {{}}; window.__tweetkbKnown = {known_json}; window.scrollTo(0, 0)"
+                if batches = 0 then execute javascript {json.dumps(reset_js)}
                 set rawItems to execute javascript {json.dumps(extractor_js)}
                 set collected to rawItems
                 set metrics to execute javascript "JSON.stringify({{scroll_y: Math.round(window.scrollY), page_height: document.documentElement.scrollHeight, visible_articles: document.querySelectorAll('article').length}})"
