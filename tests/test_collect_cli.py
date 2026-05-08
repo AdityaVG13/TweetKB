@@ -1,0 +1,112 @@
+from __future__ import annotations
+
+import argparse
+
+from tweetkb.checkpoint import Checkpoint
+from tweetkb.cli import _dispatch
+from tweetkb.collector import BrowserHarnessCollector, CollectResult, find_normal_chrome_cdp_ws
+
+
+def test_collect_all_dispatch_uses_unbounded_limit(monkeypatch, tmp_path, capsys):
+    calls = {}
+
+    class FakeCollector:
+        def ensure_available(self):
+            calls["ensure_available"] = True
+
+        def collect(self, limit, batch_size, wait, **kwargs):
+            calls["limit"] = limit
+            calls["batch_size"] = batch_size
+            calls["wait"] = wait
+            calls["kwargs"] = kwargs
+            return CollectResult(saved=0, seen=0, batches=0)
+
+    monkeypatch.setattr("tweetkb.cli._make_collector", lambda store, args: FakeCollector())
+    args = argparse.Namespace(
+        cmd="collect",
+        limit=100,
+        batch_size=20,
+        wait=1.5,
+        all=True,
+        existing_tab=False,
+        normal_chrome=False,
+        apple_events=False,
+    )
+
+    assert _dispatch(args, tmp_path / "bookmarks.sqlite3") == 0
+
+    assert calls["ensure_available"] is True
+    assert calls["limit"] is None
+    assert calls["batch_size"] == 20
+    assert calls["wait"] == 1.5
+    assert calls["kwargs"]["all_bookmarks"] is True
+    output = capsys.readouterr().out
+    assert "collect: limit=all" in output
+    assert "no AI model or cloud API is used" in output
+
+
+def test_browser_harness_all_script_is_unbounded(tmp_path):
+    collector = BrowserHarnessCollector(
+        store=object(),
+        checkpoint=Checkpoint(tmp_path / "checkpoint.json"),
+    )
+
+    script = collector._browser_script(
+        limit=None,
+        batch_size=20,
+        wait_seconds=0.01,
+        existing_tab=False,
+        all_bookmarks=True,
+    )
+
+    assert "target_limit = None" in script
+    assert "while batches < 5000 and stagnant < 10:" in script
+    assert "tweetkb progress:" in script
+    compile(script, "<browser-harness-script>", "exec")
+
+
+def test_browser_harness_limited_script_keeps_target_limit(tmp_path):
+    collector = BrowserHarnessCollector(
+        store=object(),
+        checkpoint=Checkpoint(tmp_path / "checkpoint.json"),
+    )
+
+    script = collector._browser_script(
+        limit=25,
+        batch_size=20,
+        wait_seconds=0.01,
+        existing_tab=False,
+        all_bookmarks=False,
+    )
+
+    assert "target_limit = 25" in script
+    assert "while batches < 200 and stagnant < 5:" in script
+    compile(script, "<browser-harness-script>", "exec")
+
+
+def test_normal_chrome_cdp_auto_starts_debug(monkeypatch, tmp_path):
+    calls = {}
+
+    monkeypatch.setattr("tweetkb.collector.find_cdp_ws_on_port", lambda port: None)
+    monkeypatch.setattr("tweetkb.collector.normal_chrome_has_debugging_flag", lambda browser_app: False)
+
+    def fake_start_normal_chrome_debug(**kwargs):
+        calls["start"] = kwargs
+
+    monkeypatch.setattr("tweetkb.collector.start_normal_chrome_debug", fake_start_normal_chrome_debug)
+    monkeypatch.setattr("tweetkb.collector.wait_for_normal_chrome_cdp_ws", lambda profile_root, debug_port: "ws://debug")
+
+    ws = find_normal_chrome_cdp_ws(
+        profile_root=tmp_path,
+        debug_port=9222,
+        browser_app="Google Chrome",
+        auto_start_debug=True,
+    )
+
+    assert ws == "ws://debug"
+    assert calls["start"] == {
+        "open_bookmarks": True,
+        "browser_app": "Google Chrome",
+        "browser_profile": tmp_path,
+        "debug_port": 9222,
+    }

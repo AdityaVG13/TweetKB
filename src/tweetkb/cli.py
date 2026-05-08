@@ -25,7 +25,11 @@ from .server import ReviewServer
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if not argv:
-        return _interactive_menu()
+        try:
+            return _interactive_menu()
+        except KeyboardInterrupt:
+            print("\nInterrupted.", file=sys.stderr)
+            return 130
 
     parser = argparse.ArgumentParser(prog="tweetkb")
     parser.add_argument("--db", type=Path, default=None)
@@ -219,6 +223,9 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         return _dispatch(args, db_path)
+    except KeyboardInterrupt:
+        print("\nInterrupted.", file=sys.stderr)
+        return 130
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         if "--debug" in sys.argv:
@@ -266,6 +273,8 @@ def _interactive_menu() -> int:
             continue
         print(f"$ tweetkb {' '.join(shlex.quote(part) for part in command)}")
         code = main(command)
+        if code == 130:
+            return 130
         if code:
             print(f"Command exited with status {code}.")
 
@@ -282,8 +291,8 @@ def _interactive_command_for_choice(choice: str, input_fn=input) -> list[str] | 
         command = ["collect"]
         mode = _prompt_choice(
             "Collection mode",
-            ["browser-harness", "normal-chrome", "apple-events"],
-            default="browser-harness",
+            ["normal-chrome", "browser-harness", "apple-events"],
+            default="normal-chrome",
             input_fn=input_fn,
         )
         if mode == "normal-chrome":
@@ -516,13 +525,17 @@ def _dispatch(args, db_path: Path) -> int:
     if args.cmd == "collect":
         collector = _make_collector(store, args)
         collector.ensure_available()
+        collect_limit = None if args.all else args.limit
+        mode = "apple-events" if args.apple_events else "normal-chrome" if args.normal_chrome else "browser-harness"
         print(
-            f"collect: limit={args.limit} batch_size={args.batch_size} wait={args.wait} "
-            f"mode={'apple-events' if args.apple_events else 'normal-chrome' if args.normal_chrome else 'browser-harness'}",
+            f"collect: limit={'all' if collect_limit is None else collect_limit} "
+            f"batch_size={args.batch_size} wait={args.wait} mode={mode}",
             flush=True,
         )
+        if mode == "browser-harness":
+            print("browser-harness: using local managed Chrome; no AI model or cloud API is used.", flush=True)
         result = collector.collect(
-            args.limit,
+            collect_limit,
             args.batch_size,
             args.wait,
             existing_tab=args.existing_tab,

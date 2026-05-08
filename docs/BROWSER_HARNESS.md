@@ -3,7 +3,11 @@
 TweetKB collects bookmarks by reading your logged-in browser. It does not ask for
 your X/Twitter password, browser cookies, or API tokens.
 
-The default collector expects `browser-harness` on `PATH`.
+The default collector expects `browser-harness` on `PATH`. It is deterministic
+CDP automation, not an AI browser agent. It runs a fixed JavaScript extractor
+through local Browser-Harness and does not use an LLM model, Browser Use cloud
+browser, or paid API. `BROWSER_USE_API_KEY` is only needed if you separately use
+Browser-Harness cloud browsers or profile sync.
 
 ## Install
 
@@ -57,6 +61,19 @@ uv run tweetkb collect --limit 100 --batch-size 20
 
 ## Browser Modes
 
+Interactive collection defaults to `normal-chrome`, which attaches to your
+already-open normal Chrome `https://x.com/i/bookmarks` tab. Use this when your
+normal browser is already logged in to X.
+
+Normal Chrome profile:
+
+```bash
+tweetkb chrome-debug
+tweetkb collect --normal-chrome --existing-tab --limit 100
+```
+
+Chrome may ask you to allow remote debugging once.
+
 Default managed profile:
 
 ```bash
@@ -68,15 +85,8 @@ Browser-Harness keeps its managed Chrome profile under
 `~/.browser-harness/chrome-profiles/default`. Log in to X/Twitter once there and
 the session remains for later collection runs.
 
-Normal Chrome profile:
-
-```bash
-tweetkb chrome-debug
-tweetkb collect --normal-chrome --existing-tab --limit 100
-```
-
-Use this when you want TweetKB to read from your already logged-in Chrome
-profile. Chrome may ask you to allow remote debugging once.
+If the managed Browser-Harness browser is not already running, `tweetkb collect`
+launches it before collection.
 
 macOS Apple Events fallback:
 

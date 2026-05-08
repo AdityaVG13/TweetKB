@@ -193,11 +193,17 @@ browser-harness --setup
 browser-harness --doctor
 ```
 
-TweetKB calls `browser-harness` for the default collection mode. You do not need
-to run Browser-Harness manually after setup.
+TweetKB calls `browser-harness` for the default collection mode and launches the
+managed local Chrome profile if needed. This collector is deterministic local
+CDP automation, not an AI browser agent, so it does not need an LLM model or
+Browser Use cloud API.
 
 See [Browser-Harness setup](docs/BROWSER_HARNESS.md) for managed Chrome,
 normal Chrome, and troubleshooting notes.
+
+Interactive collection defaults to your already-open normal Chrome bookmarks tab.
+Open `https://x.com/i/bookmarks`, then choose `3. Collect bookmarks` and press
+Enter for `normal-chrome`.
 
 Default Browser-Harness collection:
 

@@ -6,6 +6,8 @@ import shutil
 import socket
 import subprocess
 import textwrap
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -60,6 +62,19 @@ class BrowserHarnessCollector:
         if not shutil.which(self.executable):
             raise RuntimeError("browser-harness executable was not found on PATH")
 
+    def ensure_managed_local_ready(self, url: str = BOOKMARKS_URL) -> None:
+        self.ensure_available()
+        proc = subprocess.run(
+            [self.executable, "--launch-local", url],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+        if proc.returncode != 0:
+            detail = proc.stderr.strip() or proc.stdout.strip()
+            raise RuntimeError(f"browser-harness could not launch managed Chrome: {detail}")
+
     def open_login(self, normal_chrome: bool = False) -> None:
         self.ensure_available()
         if normal_chrome:
@@ -77,7 +92,7 @@ class BrowserHarnessCollector:
 
     def collect(
         self,
-        limit: int = 100,
+        limit: int | None = 100,
         batch_size: int = 20,
         wait_seconds: float = 1.5,
         existing_tab: bool = False,
@@ -94,27 +109,24 @@ class BrowserHarnessCollector:
                 all_bookmarks=all_bookmarks,
             )
             return self._save_payload(payload)
+        if not normal_chrome:
+            self.ensure_managed_local_ready()
         script = self._browser_script(
             limit=limit,
             batch_size=batch_size,
             wait_seconds=wait_seconds,
             existing_tab=existing_tab,
+            all_bookmarks=all_bookmarks,
         )
         env = os.environ.copy()
         if normal_chrome and "BU_CDP_WS" not in env:
             env["BU_CDP_WS"] = find_normal_chrome_cdp_ws(
                 profile_root=self.browser_profile,
                 debug_port=self.debug_port,
+                browser_app=self.browser_app,
+                auto_start_debug=True,
             )
-        proc = subprocess.run(
-            [self.executable],
-            input=script,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=env,
-            check=False,
-        )
+        proc = self._run_browser_harness_script(script, env)
         if proc.returncode != 0:
             raise RuntimeError(f"browser-harness failed: {proc.stderr.strip() or proc.stdout.strip()}")
         payload = self._parse_payload(proc.stdout)
@@ -176,10 +188,57 @@ class BrowserHarnessCollector:
             visible_articles=int(payload.get("visible_articles", 0) or 0),
         )
 
-    def _collect_with_apple_events(self, limit: int, batch_size: int, wait_seconds: float, all_bookmarks: bool = False) -> dict[str, Any]:
+    def _run_browser_harness_script(self, script: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        proc = subprocess.Popen(
+            [self.executable],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+        )
+        stdout_lines: list[str] = []
+        stderr_lines: list[str] = []
+
+        def read_stream(stream, sink: list[str], echo_progress: bool = False) -> None:
+            for line in stream:
+                sink.append(line)
+                if echo_progress and line.startswith("tweetkb progress:"):
+                    print(line, end="", flush=True)
+
+        assert proc.stdout is not None
+        assert proc.stderr is not None
+        stdout_thread = threading.Thread(target=read_stream, args=(proc.stdout, stdout_lines, True), daemon=True)
+        stderr_thread = threading.Thread(target=read_stream, args=(proc.stderr, stderr_lines, False), daemon=True)
+        stdout_thread.start()
+        stderr_thread.start()
+        try:
+            assert proc.stdin is not None
+            proc.stdin.write(script)
+            proc.stdin.close()
+            returncode = proc.wait()
+        except KeyboardInterrupt:
+            proc.terminate()
+            try:
+                proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+            raise
+        finally:
+            stdout_thread.join(timeout=1)
+            stderr_thread.join(timeout=1)
+        return subprocess.CompletedProcess(
+            args=[self.executable],
+            returncode=returncode,
+            stdout="".join(stdout_lines),
+            stderr="".join(stderr_lines),
+        )
+
+    def _collect_with_apple_events(self, limit: int | None, batch_size: int, wait_seconds: float, all_bookmarks: bool = False) -> dict[str, Any]:
         extractor_js = self._extractor_js()
         max_batches = 5000 if all_bookmarks else 200
-        limit_check = "false" if all_bookmarks else f"currentCount >= {int(limit)}"
+        limit_check = "false" if all_bookmarks else f"currentCount >= {int(limit or 100)}"
         script = f"""
         on run
           set collected to "{{}}"
@@ -237,13 +296,23 @@ class BrowserHarnessCollector:
                 return payload
         raise RuntimeError(f"No TWEETKB_JSON payload found in browser-harness output: {stdout[-1000:]}")
 
-    def _browser_script(self, limit: int, batch_size: int, wait_seconds: float, existing_tab: bool) -> str:
+    def _browser_script(
+        self,
+        limit: int | None,
+        batch_size: int,
+        wait_seconds: float,
+        existing_tab: bool,
+        all_bookmarks: bool = False,
+    ) -> str:
         extractor_js = self._extractor_js()
         return textwrap.dedent(
             """
 @@SCRIPT_BODY@@
             """
-        ).replace("@@SCRIPT_BODY@@", self._browser_script_body(limit, batch_size, wait_seconds, existing_tab, extractor_js))
+        ).replace(
+            "@@SCRIPT_BODY@@",
+            self._browser_script_body(limit, batch_size, wait_seconds, existing_tab, extractor_js, all_bookmarks),
+        )
 
     def _extractor_js(self) -> str:
         return r"""
@@ -280,7 +349,18 @@ class BrowserHarnessCollector:
 })()
 """
 
-    def _browser_script_body(self, limit: int, batch_size: int, wait_seconds: float, existing_tab: bool, extractor_js: str) -> str:
+    def _browser_script_body(
+        self,
+        limit: int | None,
+        batch_size: int,
+        wait_seconds: float,
+        existing_tab: bool,
+        extractor_js: str,
+        all_bookmarks: bool = False,
+    ) -> str:
+        target_limit = "None" if all_bookmarks else str(int(limit or 100))
+        max_batches = 5000 if all_bookmarks else 200
+        stagnant_limit = 10 if all_bookmarks else 5
         return textwrap.dedent(
             f"""
             import json, time
@@ -329,7 +409,9 @@ class BrowserHarnessCollector:
                 seen = {{}}
                 batches = 0
                 stagnant = 0
-                while len(seen) < {int(limit)} and stagnant < 5:
+                metrics = {{}}
+                target_limit = {target_limit}
+                while batches < {max_batches} and stagnant < {stagnant_limit}:
                     raw = eval_in_tab({extractor_js!r})
                     items = json.loads(raw or "[]")
                     before = len(seen)
@@ -341,11 +423,26 @@ class BrowserHarnessCollector:
                         stagnant += 1
                     else:
                         stagnant = 0
-                    if len(seen) >= {int(limit)}:
+                    metrics_raw = eval_in_tab("JSON.stringify({{scroll_y: Math.round(window.scrollY), page_height: document.documentElement.scrollHeight, visible_articles: document.querySelectorAll('article').length}})")
+                    metrics = json.loads(metrics_raw or "{{}}")
+                    print(
+                        "tweetkb progress: seen={{}} batches={{}} scroll_y={{}} page_height={{}} visible_articles={{}}".format(
+                            len(seen),
+                            batches,
+                            metrics.get("scroll_y", 0),
+                            metrics.get("page_height", 0),
+                            metrics.get("visible_articles", 0),
+                        ),
+                        flush=True,
+                    )
+                    if target_limit is not None and len(seen) >= target_limit:
                         break
                     eval_in_tab("window.scrollBy(0, " + str({int(batch_size) * 220}) + ")")
                     time.sleep({float(wait_seconds)})
-                print("TWEETKB_JSON=" + json.dumps({{"items": list(seen.values())[:{int(limit)}], "batches": batches}}))
+                items = list(seen.values())
+                if target_limit is not None:
+                    items = items[:target_limit]
+                print("TWEETKB_JSON=" + json.dumps({{"items": items, "batches": batches, "metrics": metrics}}))
             """
         )
 
@@ -353,12 +450,44 @@ class BrowserHarnessCollector:
 def find_normal_chrome_cdp_ws(
     profile_root: Path = DEFAULT_BROWSER_PROFILE,
     debug_port: int = DEFAULT_BROWSER_DEBUG_PORT,
+    browser_app: str = DEFAULT_BROWSER_APP,
+    auto_start_debug: bool = False,
 ) -> str:
     fixed_ws = find_cdp_ws_on_port(debug_port)
     if fixed_ws:
         return fixed_ws
+    if auto_start_debug and not normal_chrome_has_debugging_flag(browser_app):
+        print("normal-chrome: restarting Chrome with remote debugging and opening X bookmarks...", flush=True)
+        start_normal_chrome_debug(
+            open_bookmarks=True,
+            browser_app=browser_app,
+            browser_profile=profile_root,
+            debug_port=debug_port,
+        )
+        ws = wait_for_normal_chrome_cdp_ws(profile_root, debug_port)
+        if ws:
+            return ws
+        raise RuntimeError(
+            "Chrome was restarted with remote debugging, but CDP is not reachable yet. "
+            "If Chrome shows an `Allow remote debugging?` prompt, click Allow, then rerun collection."
+        )
     port_file = profile_root / "DevToolsActivePort"
     if not port_file.exists():
+        if auto_start_debug:
+            print("normal-chrome: enabling remote debugging and opening X bookmarks...", flush=True)
+            start_normal_chrome_debug(
+                open_bookmarks=True,
+                browser_app=browser_app,
+                browser_profile=profile_root,
+                debug_port=debug_port,
+            )
+            ws = wait_for_normal_chrome_cdp_ws(profile_root, debug_port)
+            if ws:
+                return ws
+            raise RuntimeError(
+                "Normal Chrome did not expose DevToolsActivePort. "
+                "If Chrome shows an `Allow remote debugging?` prompt, click Allow, then rerun collection."
+            )
         raise RuntimeError(
             "Normal Chrome does not expose DevToolsActivePort. Open chrome://inspect/#remote-debugging, "
             "enable remote debugging, click Allow if prompted, then retry."
@@ -366,20 +495,74 @@ def find_normal_chrome_cdp_ws(
     lines = [line.strip() for line in port_file.read_text().splitlines() if line.strip()]
     if len(lines) < 2:
         raise RuntimeError(f"Invalid DevToolsActivePort file: {port_file}")
-    if not normal_chrome_has_debugging_flag():
+    if not normal_chrome_has_debugging_flag(browser_app):
+        if auto_start_debug:
+            print("normal-chrome: restarting Chrome with remote debugging and opening X bookmarks...", flush=True)
+            start_normal_chrome_debug(
+                open_bookmarks=True,
+                browser_app=browser_app,
+                browser_profile=profile_root,
+                debug_port=debug_port,
+            )
+            ws = wait_for_normal_chrome_cdp_ws(profile_root, debug_port)
+            if ws:
+                return ws
+            raise RuntimeError(
+                "Chrome was restarted with remote debugging, but CDP is not reachable yet. "
+                "If Chrome shows an `Allow remote debugging?` prompt, click Allow, then rerun collection."
+            )
         raise RuntimeError(
             "Normal Chrome is not running with remote debugging. Quit Chrome, then start it with:\n"
-            f"open -na '{DEFAULT_BROWSER_APP}' --args --remote-debugging-port={debug_port} --remote-allow-origins='*'\n"
+            f"open -na '{browser_app}' --args --remote-debugging-port={debug_port} --remote-allow-origins='*'\n"
             "Then open https://x.com/i/bookmarks and rerun collection."
         )
     port = int(lines[0])
     if not is_port_open("127.0.0.1", port):
+        if auto_start_debug:
+            print("normal-chrome: remote debugging port is stale; restarting Chrome debug session...", flush=True)
+            start_normal_chrome_debug(
+                open_bookmarks=True,
+                browser_app=browser_app,
+                browser_profile=profile_root,
+                debug_port=debug_port,
+            )
+            ws = wait_for_normal_chrome_cdp_ws(profile_root, debug_port)
+            if ws:
+                return ws
+            raise RuntimeError(
+                "Normal Chrome remote debugging is still unreachable. "
+                "If Chrome shows an `Allow remote debugging?` prompt, click Allow, then rerun collection."
+            )
         raise RuntimeError(
             f"Normal Chrome remote debugging port {port} is stale or closed. Run:\n"
             "uv run tweetkb chrome-debug\n"
             "Then log into X if needed and rerun collection."
         )
     return f"ws://127.0.0.1:{port}{lines[1]}"
+
+
+def wait_for_normal_chrome_cdp_ws(
+    profile_root: Path = DEFAULT_BROWSER_PROFILE,
+    debug_port: int = DEFAULT_BROWSER_DEBUG_PORT,
+    timeout_seconds: float = 30.0,
+) -> str | None:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        fixed_ws = find_cdp_ws_on_port(debug_port)
+        if fixed_ws:
+            return fixed_ws
+        port_file = profile_root / "DevToolsActivePort"
+        if port_file.exists():
+            try:
+                lines = [line.strip() for line in port_file.read_text().splitlines() if line.strip()]
+                if len(lines) >= 2:
+                    port = int(lines[0])
+                    if is_port_open("127.0.0.1", port):
+                        return f"ws://127.0.0.1:{port}{lines[1]}"
+            except (OSError, ValueError):
+                pass
+        time.sleep(0.5)
+    return None
 
 
 def find_cdp_ws_on_port(port: int) -> str | None:
