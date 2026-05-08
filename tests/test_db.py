@@ -98,3 +98,40 @@ def test_content_enrichment_roundtrip(tmp_path: Path):
     pending = store.list_bookmarks_for_enrichment()
     assert pending == []
     store.close()
+
+
+def test_list_bookmarks_for_enrichment_can_target_missing_source_type(tmp_path: Path):
+    store = Store(tmp_path / "db.sqlite3")
+    store.init()
+    bookmark_id = store.upsert_bookmark(
+        {
+            "status_url": "https://x.com/a/status/1",
+            "author_handle": "a",
+            "tweet_text": "preview with image",
+        }
+    )
+    assert bookmark_id is not None
+    store.set_content_enrichment(
+        bookmark_id,
+        "https://x.com/a/status/1",
+        "full tweet text",
+        source_type="x-status",
+    )
+    store.set_classifications(
+        bookmark_id,
+        [{"slug": "vision", "confidence": 0.9, "method": "test", "rationale": ""}],
+        "vision",
+        0.9,
+    )
+
+    pending_text = store.list_bookmarks_for_enrichment()
+    pending_media = store.list_bookmarks_for_enrichment(missing_source_type="image-analysis")
+    pending_media_category = store.list_bookmarks_for_enrichment(
+        category="vision",
+        missing_source_type="image-analysis",
+    )
+
+    assert pending_text == []
+    assert [row["id"] for row in pending_media] == [bookmark_id]
+    assert [row["id"] for row in pending_media_category] == [bookmark_id]
+    store.close()

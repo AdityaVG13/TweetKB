@@ -64,6 +64,11 @@ def main(argv: list[str] | None = None) -> int:
     enrich.add_argument("--all", action="store_true", help="Re-enrich rows that already have captured content")
     enrich.add_argument("--include-links", action="store_true", help="Also open and capture outbound linked pages")
     enrich.add_argument("--max-links", type=int, default=3, help="Max outbound links to read per bookmark")
+    enrich.add_argument("--include-media", action="store_true", help="Analyze images attached to the bookmarked post")
+    enrich.add_argument("--max-media", type=int, default=4, help="Max images to analyze per bookmark")
+    enrich.add_argument("--vision-provider", default="openai", choices=["openai", "ollama", "metadata"])
+    enrich.add_argument("--vision-model", default=None, help="Vision model override")
+    enrich.add_argument("--vision-detail", default="auto", choices=["low", "auto", "high"])
     enrich.add_argument(
         "--include-conversation",
         default="auto",
@@ -333,6 +338,12 @@ def _interactive_command_for_choice(choice: str, input_fn=input) -> list[str] | 
         if _prompt_bool("Include outbound links?", default=False, input_fn=input_fn):
             command.append("--include-links")
             command.extend(["--max-links", str(_prompt_int("Max links", 3, input_fn))])
+        if _prompt_bool("Analyze media images?", default=False, input_fn=input_fn):
+            command.append("--include-media")
+            provider = _prompt_choice("Vision provider", ["openai", "ollama", "metadata"], "openai", input_fn)
+            command.extend(["--vision-provider", provider])
+            _append_optional_arg(command, "--vision-model", _prompt_text("Vision model", "", input_fn))
+            command.extend(["--max-media", str(_prompt_int("Max images", 4, input_fn))])
         if _prompt_bool("Re-enrich existing rows?", default=False, input_fn=input_fn):
             command.append("--all")
         return command
@@ -572,6 +583,7 @@ def _dispatch(args, db_path: Path) -> int:
             since=args.since,
             limit=args.limit,
             missing_only=not args.all,
+            missing_source_type="image-analysis" if args.include_media else None,
         )
         result = enrich_with_apple_events(
             store,
@@ -580,13 +592,18 @@ def _dispatch(args, db_path: Path) -> int:
             wait_seconds=args.wait,
             include_links=args.include_links,
             max_links=args.max_links,
+            include_media=args.include_media,
+            max_media=args.max_media,
+            vision_provider=args.vision_provider,
+            vision_model=args.vision_model,
+            vision_detail=args.vision_detail,
             include_conversation=args.include_conversation,
             max_conversation_items=args.max_conversation_items,
             progress=_print_progress,
         )
         print(
             f"selected={len(bookmarks)} enriched={result.enriched} conversations={result.conversations} "
-            f"skipped={result.skipped} failed={result.failed}"
+            f"media_analyzed={result.media_analyzed} skipped={result.skipped} failed={result.failed}"
         )
         return 0
 

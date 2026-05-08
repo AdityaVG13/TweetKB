@@ -82,7 +82,7 @@ def test_interactive_analyze_export_builds_folder_command():
 def test_interactive_enrich_builds_conversation_command():
     command = _interactive_command_for_choice(
         "5",
-        input_fn=_answers(["", "", "10", "1.5", "always", "20", "n", "n"]),
+        input_fn=_answers(["", "", "10", "1.5", "always", "20", "n", "n", "n"]),
     )
 
     assert command == [
@@ -96,6 +96,30 @@ def test_interactive_enrich_builds_conversation_command():
         "always",
         "--max-conversation-items",
         "20",
+    ]
+
+
+def test_interactive_enrich_builds_media_command():
+    command = _interactive_command_for_choice(
+        "5",
+        input_fn=_answers(["", "", "10", "1.5", "never", "n", "y", "metadata", "", "2", "y"]),
+    )
+
+    assert command == [
+        "enrich",
+        "--apple-events",
+        "--limit",
+        "10",
+        "--wait",
+        "1.5",
+        "--include-conversation",
+        "never",
+        "--include-media",
+        "--vision-provider",
+        "metadata",
+        "--max-media",
+        "2",
+        "--all",
     ]
 
 

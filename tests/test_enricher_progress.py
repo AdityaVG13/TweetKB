@@ -7,4 +7,4 @@ def test_enrich_reports_empty_selection_progress():
     result = enrich_with_apple_events(None, [], progress=messages.append)
 
     assert result.enriched == 0
-    assert messages == ["enrich: selected=0 include_links=False include_conversation=auto"]
+    assert messages == ["enrich: selected=0 include_links=False include_media=False include_conversation=auto"]

@@ -295,21 +295,28 @@ class Store:
         since: str | None = None,
         limit: int | None = None,
         missing_only: bool = True,
+        missing_source_type: str | None = None,
     ) -> list[sqlite3.Row]:
-        params: list[Any] = []
+        join_params: list[Any] = []
+        where_params: list[Any] = []
         joins = []
         where = ["b.is_deleted = 0"]
         if category:
             joins.append("JOIN classifications cl ON cl.bookmark_id = b.id AND cl.is_primary = 1")
             where.append("cl.category_slug = ?")
-            params.append(category)
+            where_params.append(category)
         if since:
             where.append("date(b.captured_at) >= date(?)")
-            params.append(since)
+            where_params.append(since)
         if missing_only:
-            joins.append("LEFT JOIN content_enrichments ce ON ce.bookmark_id = b.id")
+            if missing_source_type:
+                joins.append("LEFT JOIN content_enrichments ce ON ce.bookmark_id = b.id AND ce.source_type = ?")
+                join_params.append(missing_source_type)
+            else:
+                joins.append("LEFT JOIN content_enrichments ce ON ce.bookmark_id = b.id")
             where.append("ce.id IS NULL")
 
+        params = [*join_params, *where_params]
         sql = "SELECT DISTINCT b.* FROM bookmarks b " + " ".join(joins)
         sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY b.captured_at DESC, b.id DESC"

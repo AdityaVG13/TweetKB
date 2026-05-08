@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from tweetkb.enricher import _candidate_outbound_links, capture_x_content_with_apple_events, enrich_with_apple_events
+from tweetkb.image_analysis import ImageAnalysis
 
 
 def test_candidate_outbound_links_skips_x_help_and_cookie_links():
@@ -58,6 +59,44 @@ def test_enrich_stores_conversation_for_question(monkeypatch):
     assert result.conversations == 1
     assert calls[1]["source_type"] == "x-conversation"
     assert "Use a small golden set first." in calls[1]["content_text"]
+
+
+def test_enrich_stores_image_analysis(monkeypatch):
+    payload = {
+        "url": "https://x.com/a/status/1",
+        "source_type": "x-status",
+        "content_text": "Look at this architecture diagram",
+        "media": [
+            {"url": "https://pbs.twimg.com/media/diagram.jpg?format=jpg&name=large", "alt": "Architecture diagram"},
+        ],
+    }
+    calls = []
+
+    class FakeStore:
+        def set_content_enrichment(self, **kwargs):
+            calls.append(kwargs)
+            return True
+
+    monkeypatch.setattr("tweetkb.enricher.capture_x_content_with_apple_events", lambda *args, **kwargs: payload)
+    monkeypatch.setattr(
+        "tweetkb.enricher.analyze_image_media",
+        lambda *args, **kwargs: ImageAnalysis(
+            content_text="Image analysis: boxes connected by arrows.",
+            provider="metadata",
+            model="alt-text",
+        ),
+    )
+
+    result = enrich_with_apple_events(
+        FakeStore(),
+        [{"id": 1, "status_url": "https://x.com/a/status/1", "tweet_text": "diagram", "raw_text": ""}],
+        include_media=True,
+        vision_provider="metadata",
+    )
+
+    assert result.media_analyzed == 1
+    assert calls[1]["source_type"] == "image-analysis"
+    assert "boxes connected by arrows" in calls[1]["content_text"]
 
 
 def test_capture_x_article_scrolls_before_extracting(monkeypatch):

@@ -247,14 +247,24 @@ uv run tweetkb analyze-export --stage all --adapter spec --vault ./exports/spec
 `enrich` opens saved status URLs in logged-in Chrome and captures long-form post
 or article text. It also captures visible thread/reply context by default when
 the bookmarked tweet looks like a question, so answers in the discussion become
-part of later analysis.
+part of later analysis. Add `--include-media` to analyze attached images; image
+descriptions and OCR text are stored with the bookmark and included in later
+classification, entity extraction, embeddings, and exports.
 
 ```bash
 uv run tweetkb enrich --apple-events --limit 100 --wait 4
 uv run tweetkb enrich --apple-events --include-conversation always --max-conversation-items 20
 uv run tweetkb enrich --apple-events --include-links --max-links 3
+OPENAI_API_KEY=... uv run tweetkb enrich --apple-events --include-media --vision-provider openai --vision-detail high
+uv run tweetkb enrich --apple-events --include-media --vision-provider ollama --vision-model llava
 uv run tweetkb analyze --stage all
 ```
+
+Vision providers:
+
+- `openai`: sends image URLs to the OpenAI Responses API. Requires `OPENAI_API_KEY`.
+- `ollama`: downloads images locally and sends them to an Ollama vision model.
+- `metadata`: stores captured image alt text only, useful as a no-model fallback.
 
 Conversation modes:
 

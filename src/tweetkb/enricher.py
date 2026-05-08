@@ -8,6 +8,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from .conversation import format_conversation_context, looks_like_question, should_capture_conversation
+from .image_analysis import analyze_image_media, candidate_media_images
 
 BLOCKED_LINK_HOSTS = {
     "business.x.com",
@@ -35,6 +36,7 @@ BLOCKED_LINK_TEXT = {
 class EnrichResult:
     enriched: int = 0
     conversations: int = 0
+    media_analyzed: int = 0
     skipped: int = 0
     failed: int = 0
 
@@ -56,6 +58,11 @@ def enrich_with_apple_events(
     wait_seconds: float = 2.0,
     include_links: bool = False,
     max_links: int = 3,
+    include_media: bool = False,
+    max_media: int = 4,
+    vision_provider: str = "openai",
+    vision_model: str | None = None,
+    vision_detail: str = "auto",
     include_conversation: str = "auto",
     max_conversation_items: int = 12,
     progress: Callable[[str], None] | None = None,
@@ -63,7 +70,10 @@ def enrich_with_apple_events(
     result = EnrichResult()
     total = len(bookmarks)
     if progress:
-        progress(f"enrich: selected={total} include_links={include_links} include_conversation={include_conversation}")
+        progress(
+            f"enrich: selected={total} include_links={include_links} "
+            f"include_media={include_media} include_conversation={include_conversation}"
+        )
     for index, row in enumerate(bookmarks, start=1):
         bookmark_id = int(row["id"])
         status_url = row["status_url"]
@@ -124,6 +134,42 @@ def enrich_with_apple_events(
                     },
                 ):
                     result.conversations += 1
+                else:
+                    result.skipped += 1
+
+        if include_media:
+            media_items = candidate_media_images(payload.get("media", []), max_media=max_media)
+            for media_index, media in enumerate(media_items, start=1):
+                if progress:
+                    progress(f"enrich: {index}/{total} media {media_index}/{len(media_items)} {media['url']}")
+                try:
+                    image_analysis = analyze_image_media(
+                        media,
+                        provider=vision_provider,
+                        model=vision_model,
+                        detail=vision_detail,
+                        context_text=bookmark_text,
+                    )
+                except (RuntimeError, ValueError):
+                    result.failed += 1
+                    continue
+                if store.set_content_enrichment(
+                    bookmark_id=bookmark_id,
+                    source_url=media["url"],
+                    source_type="image-analysis",
+                    title="Image analysis",
+                    content_text=image_analysis.content_text,
+                    metadata={
+                        "status_url": status_url,
+                        "image_url": media["url"],
+                        "alt": media.get("alt", ""),
+                        "provider": image_analysis.provider,
+                        "model": image_analysis.model,
+                        "detail": vision_detail,
+                        "content_length": len(image_analysis.content_text),
+                    },
+                ):
+                    result.media_analyzed += 1
                 else:
                     result.skipped += 1
 

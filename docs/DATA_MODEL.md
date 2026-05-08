@@ -170,6 +170,22 @@ Bookmark embedding vectors.
 | updated_at | TEXT NOT NULL | |
 | UNIQUE | (bookmark_id, provider, model) | |
 
+Durable enrichment captures from posts, X Articles, conversations, linked pages,
+and image analysis.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | INTEGER PRIMARY KEY | |
+| bookmark_id | INTEGER NOT NULL | FK -> bookmarks.id |
+| source_url | TEXT NOT NULL | Status, article, linked page, conversation fragment, or image URL |
+| source_type | TEXT NOT NULL | x-status, x-article, x-conversation, linked-page, image-analysis |
+| title | TEXT NOT NULL DEFAULT '' | Captured page/title/source label |
+| content_text | TEXT NOT NULL DEFAULT '' | Full captured text or image description/OCR |
+| content_hash | TEXT NOT NULL DEFAULT '' | Hash of source/content |
+| captured_at | TEXT NOT NULL | |
+| metadata_json | TEXT NOT NULL DEFAULT '{}' | Provider/model/media metadata |
+| UNIQUE | (bookmark_id, source_url) | |
+
 ### clusters
 Topic clusters.
 
