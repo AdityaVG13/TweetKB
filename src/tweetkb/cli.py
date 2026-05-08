@@ -266,9 +266,9 @@ def _interactive_menu() -> int:
                     "1. Initialize database",
                     "2. Open login browser",
                     "3. Collect bookmarks",
-                    "4. Analyze bookmarks",
-                    "4a. Analyze + export to folder",
-                    "5. Enrich saved bookmarks",
+                    "4. Enrich saved bookmarks",
+                    "5. Analyze bookmarks",
+                    "5a. Analyze + export to folder",
                     "6. Export",
                     "7. Review",
                     "8. Stats",
@@ -329,16 +329,7 @@ def _interactive_command_for_choice(choice: str, input_fn=input) -> list[str] | 
         command.extend(["--batch-size", str(_prompt_int("Batch size", 20, input_fn))])
         command.extend(["--wait", str(_prompt_float("Wait seconds", 1.5, input_fn))])
         return command
-    if choice == "4":
-        command = ["analyze"]
-        _append_interactive_analysis_args(command, input_fn)
-        return command
-    if choice in {"4a", "4e", "ae", "analyze-export"}:
-        command = ["analyze-export"]
-        _append_interactive_analysis_args(command, input_fn, default_stage="all")
-        _append_interactive_export_args(command, input_fn, default_adapter="spec")
-        return command
-    if choice == "5":
+    if choice in {"4", "enrich"}:
         command = ["enrich", "--apple-events"]
         _append_optional_arg(command, "--category", _prompt_text("Category", "", input_fn))
         _append_optional_arg(command, "--since", _prompt_text("Since YYYY-MM-DD", "", input_fn))
@@ -364,6 +355,15 @@ def _interactive_command_for_choice(choice: str, input_fn=input) -> list[str] | 
             command.extend(["--max-media", str(_prompt_int("Max images", 4, input_fn))])
         if _prompt_bool("Re-enrich existing rows?", default=False, input_fn=input_fn):
             command.append("--all")
+        return command
+    if choice in {"5", "analyze"}:
+        command = ["analyze"]
+        _append_interactive_analysis_args(command, input_fn)
+        return command
+    if choice in {"5a", "5e", "4a", "4e", "ae", "analyze-export"}:
+        command = ["analyze-export"]
+        _append_interactive_analysis_args(command, input_fn, default_stage="all")
+        _append_interactive_export_args(command, input_fn, default_adapter="spec")
         return command
     if choice == "6":
         command = ["export"]

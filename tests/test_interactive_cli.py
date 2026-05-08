@@ -26,7 +26,7 @@ def test_interactive_collect_defaults_to_apple_events():
 
 def test_interactive_analyze_builds_filtered_command():
     command = _interactive_command_for_choice(
-        "4",
+        "5",
         input_fn=_answers(["entities", "n", "ai-agents,coding", "misc", "needs-review", "", "25"]),
     )
 
@@ -47,7 +47,7 @@ def test_interactive_analyze_builds_filtered_command():
 
 def test_interactive_analyze_export_builds_folder_command():
     command = _interactive_command_for_choice(
-        "4a",
+        "5a",
         input_fn=_answers(["all", "local-hash", "y", "ai-agents", "", "any", "", "50", "markdown", "./exports/notes", "n", "0.4"]),
     )
 
@@ -72,7 +72,7 @@ def test_interactive_analyze_export_builds_folder_command():
 
 def test_interactive_enrich_builds_conversation_command():
     command = _interactive_command_for_choice(
-        "5",
+        "4",
         input_fn=_answers(["", "", "10", "1.5", "always", "20", "n", "n", "n"]),
     )
 
@@ -92,7 +92,7 @@ def test_interactive_enrich_builds_conversation_command():
 
 def test_interactive_enrich_builds_media_command():
     command = _interactive_command_for_choice(
-        "5",
+        "4",
         input_fn=_answers(["", "", "10", "1.5", "never", "n", "y", "metadata", "", "2", "y"]),
     )
 

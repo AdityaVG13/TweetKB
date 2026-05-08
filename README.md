@@ -133,7 +133,7 @@ export notes, review bookmarks, show stats, generate clusters, mine project
 ideas, export graphs, run TweetZip, start the review UI, run doctor checks, and
 run the release audit.
 
-Use `4a. Analyze + export to folder` when you want TweetKB to run analysis and
+Use `5a. Analyze + export to folder` when you want TweetKB to run analysis and
 write the resulting analysis documents to a specific output folder in one step.
 
 Every menu action prints the exact `tweetkb ...` command before running it.
