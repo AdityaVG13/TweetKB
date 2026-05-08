@@ -110,3 +110,58 @@ def test_normal_chrome_cdp_auto_starts_debug(monkeypatch, tmp_path):
         "browser_profile": tmp_path,
         "debug_port": 9222,
     }
+
+
+def test_normal_chrome_collect_falls_back_to_apple_events(monkeypatch, tmp_path, capsys):
+    class FakeStore:
+        def log_event(self, *_args, **_kwargs):
+            pass
+
+    collector = BrowserHarnessCollector(FakeStore(), checkpoint=Checkpoint(tmp_path / "checkpoint.json"))
+    monkeypatch.setattr(collector, "ensure_available", lambda: None)
+    monkeypatch.setattr(
+        "tweetkb.collector.find_normal_chrome_cdp_ws",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("CDP not reachable")),
+    )
+    monkeypatch.setattr("tweetkb.collector._apple_events_javascript_available", lambda _browser_app: True)
+    monkeypatch.setattr(
+        collector,
+        "_collect_with_apple_events",
+        lambda **_kwargs: {"items": [], "batches": 0},
+    )
+
+    result = collector.collect(normal_chrome=True, all_bookmarks=True)
+
+    assert result.saved == 0
+    assert "falling back to Apple Events" in capsys.readouterr().out
+
+
+def test_apple_events_collect_applies_limit(monkeypatch, tmp_path):
+    saved_items = []
+
+    class FakeStore:
+        def upsert_bookmark_with_status(self, item):
+            saved_items.append(item)
+            return len(saved_items), True
+
+        def log_event(self, *_args, **_kwargs):
+            pass
+
+    collector = BrowserHarnessCollector(FakeStore(), checkpoint=Checkpoint(tmp_path / "checkpoint.json"))
+    monkeypatch.setattr(collector, "ensure_available", lambda: None)
+    monkeypatch.setattr(
+        collector,
+        "_collect_with_apple_events",
+        lambda **_kwargs: {
+            "items": [
+                {"status_id": "1", "status_url": "https://x.com/a/status/1", "tweet_text": "one"},
+                {"status_id": "2", "status_url": "https://x.com/a/status/2", "tweet_text": "two"},
+            ],
+            "batches": 1,
+        },
+    )
+
+    result = collector.collect(limit=1, apple_events=True)
+
+    assert result.saved == 1
+    assert [item["status_id"] for item in saved_items] == ["1"]

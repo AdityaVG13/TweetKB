@@ -108,6 +108,7 @@ class BrowserHarnessCollector:
                 wait_seconds=wait_seconds,
                 all_bookmarks=all_bookmarks,
             )
+            payload = self._apply_limit(payload, limit, all_bookmarks)
             return self._save_payload(payload)
         if not normal_chrome:
             self.ensure_managed_local_ready()
@@ -120,12 +121,28 @@ class BrowserHarnessCollector:
         )
         env = os.environ.copy()
         if normal_chrome and "BU_CDP_WS" not in env:
-            env["BU_CDP_WS"] = find_normal_chrome_cdp_ws(
-                profile_root=self.browser_profile,
-                debug_port=self.debug_port,
-                browser_app=self.browser_app,
-                auto_start_debug=True,
-            )
+            try:
+                env["BU_CDP_WS"] = find_normal_chrome_cdp_ws(
+                    profile_root=self.browser_profile,
+                    debug_port=self.debug_port,
+                    browser_app=self.browser_app,
+                    auto_start_debug=True,
+                )
+            except RuntimeError as exc:
+                if _apple_events_javascript_available(self.browser_app):
+                    print(
+                        f"normal-chrome: CDP unavailable ({exc}); falling back to Apple Events.",
+                        flush=True,
+                    )
+                    payload = self._collect_with_apple_events(
+                        limit=limit,
+                        batch_size=batch_size,
+                        wait_seconds=wait_seconds,
+                        all_bookmarks=all_bookmarks,
+                    )
+                    payload = self._apply_limit(payload, limit, all_bookmarks)
+                    return self._save_payload(payload)
+                raise
         proc = self._run_browser_harness_script(script, env)
         if proc.returncode != 0:
             raise RuntimeError(f"browser-harness failed: {proc.stderr.strip() or proc.stdout.strip()}")
@@ -145,6 +162,15 @@ class BrowserHarnessCollector:
             )
 
         return self._save_payload(payload)
+
+    def _apply_limit(self, payload: dict[str, Any], limit: int | None, all_bookmarks: bool) -> dict[str, Any]:
+        if all_bookmarks or limit is None:
+            return payload
+        items = payload.get("items")
+        if isinstance(items, list):
+            payload = dict(payload)
+            payload["items"] = items[: int(limit)]
+        return payload
 
     def _save_payload(self, payload: dict[str, Any]) -> CollectResult:
         saved = 0
@@ -598,6 +624,18 @@ def normal_chrome_has_debugging_flag(browser_app: str = DEFAULT_BROWSER_APP) -> 
         if "--remote-debugging-port" in line:
             return True
     return False
+
+
+def _apple_events_javascript_available(browser_app: str = DEFAULT_BROWSER_APP) -> bool:
+    script = f'tell application {json.dumps(browser_app)} to tell active tab of front window to execute javascript "location.href"'
+    proc = subprocess.run(
+        ["osascript", "-e", script],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    return proc.returncode == 0 and bool(proc.stdout.strip())
 
 
 def is_port_open(host: str, port: int, timeout: float = 0.5) -> bool:
