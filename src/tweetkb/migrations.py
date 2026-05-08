@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime, timezone
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # Schema v1: legacy single-table with JSON columns
 SCHEMA_V1 = """
@@ -201,6 +201,16 @@ CREATE TABLE IF NOT EXISTS embeddings (
   UNIQUE(bookmark_id, provider, model)
 );
 
+CREATE TABLE IF NOT EXISTS analysis_state (
+  id INTEGER PRIMARY KEY,
+  bookmark_id INTEGER NOT NULL,
+  stage TEXT NOT NULL,
+  provider TEXT NOT NULL DEFAULT '',
+  content_hash TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(bookmark_id, stage, provider)
+);
+
 CREATE TABLE IF NOT EXISTS clusters (
   id INTEGER PRIMARY KEY,
   slug TEXT UNIQUE NOT NULL,
@@ -339,6 +349,7 @@ CREATE INDEX IF NOT EXISTS idx_classifications_category ON classifications(categ
 CREATE INDEX IF NOT EXISTS idx_entities_normalized ON entities(normalized_name);
 CREATE INDEX IF NOT EXISTS idx_bookmark_entities_bookmark ON bookmark_entities(bookmark_id);
 CREATE INDEX IF NOT EXISTS idx_bookmark_entities_entity ON bookmark_entities(entity_id);
+CREATE INDEX IF NOT EXISTS idx_analysis_state_bookmark ON analysis_state(bookmark_id);
 CREATE INDEX IF NOT EXISTS idx_cluster_members_cluster ON cluster_members(cluster_id);
 CREATE INDEX IF NOT EXISTS idx_cluster_members_bookmark ON cluster_members(bookmark_id);
 CREATE INDEX IF NOT EXISTS idx_content_enrichments_bookmark ON content_enrichments(bookmark_id);
@@ -719,7 +730,7 @@ def init_fresh(conn: sqlite3.Connection) -> None:
         "INSERT OR IGNORE INTO categories(slug, label, description, export_default, review_default) VALUES (?, ?, ?, ?, ?)",
         CATEGORY_SEED,
     )
-    apply_migration(conn, SCHEMA_VERSION, "fresh init v3")
+    apply_migration(conn, SCHEMA_VERSION, "fresh init v4")
     conn.commit()
 
 
@@ -730,6 +741,14 @@ def migrate_to_v3(conn: sqlite3.Connection) -> None:
         return
     repair_v2(conn)
     apply_migration(conn, 3, "add content enrichments")
+    conn.commit()
+
+
+def migrate_to_v4(conn: sqlite3.Connection) -> None:
+    """Add per-stage analysis state for changed-only skips."""
+    repair_v2(conn)
+    if get_schema_version(conn) < 4:
+        apply_migration(conn, 4, "add analysis state")
     conn.commit()
 
 
@@ -747,7 +766,7 @@ def migrate(conn: sqlite3.Connection) -> None:
             if "category" in cols:
                 # Legacy v1 schema
                 migrate_to_v2(conn)
-                return
+                version = get_schema_version(conn)
         # Fresh DB or already v2
         if version == 0:
             init_fresh(conn)
@@ -756,4 +775,6 @@ def migrate(conn: sqlite3.Connection) -> None:
         migrate_to_v2(conn)
     if get_schema_version(conn) < 3:
         migrate_to_v3(conn)
+    if get_schema_version(conn) < 4:
+        migrate_to_v4(conn)
     repair_v2(conn)

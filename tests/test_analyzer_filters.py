@@ -37,6 +37,38 @@ def test_analysis_can_limit_selection(tmp_path):
     store.close()
 
 
+def test_analysis_stage_classify_does_not_embed(tmp_path):
+    store = Store(tmp_path / "db.sqlite3")
+    store.init()
+    bookmark_id = store.upsert_bookmark({"status_url": "https://x.com/a/status/1", "tweet_text": "OpenAI agent"})
+    assert bookmark_id
+
+    result = run_analysis(store, stage="classify", changed_only=False)
+
+    assert result["classified"] == 1
+    assert result["embedded"] == 0
+    embeddings = store.conn.execute("SELECT COUNT(*) AS n FROM embeddings").fetchone()["n"]
+    assert embeddings == 0
+    store.close()
+
+
+def test_analysis_changed_only_skips_completed_stage(tmp_path):
+    store = Store(tmp_path / "db.sqlite3")
+    store.init()
+    bookmark_id = store.upsert_bookmark({"status_url": "https://x.com/a/status/1", "tweet_text": "OpenAI agent"})
+    assert bookmark_id
+    messages: list[str] = []
+
+    first = run_analysis(store, stage="classify", changed_only=True)
+    second = run_analysis(store, stage="classify", changed_only=True, progress=messages.append)
+
+    assert first["classified"] == 1
+    assert second["total"] == 0
+    assert second["classified"] == 0
+    assert messages[-1] == "analysis: 1/1 skipped unchanged 1"
+    store.close()
+
+
 def test_analysis_reports_progress(tmp_path):
     store = Store(tmp_path / "db.sqlite3")
     store.init()

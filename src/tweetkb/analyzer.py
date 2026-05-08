@@ -9,6 +9,27 @@ from .enricher import enriched_text_for_analysis
 from .entities import extract_entities
 from .util import stable_hash
 
+ANALYSIS_STAGES = ("classify", "entities", "embed")
+
+
+def _stage_provider(stage: str, provider: str) -> str:
+    return provider if stage == "embed" else ""
+
+
+def _embedding_current(store, bookmark_id: int, provider: str, analysis_hash: str) -> bool:
+    row = store.conn.execute(
+        "SELECT content_hash FROM embeddings WHERE bookmark_id = ? AND provider = ? ORDER BY updated_at DESC LIMIT 1",
+        (bookmark_id, provider),
+    ).fetchone()
+    return bool(row and row["content_hash"] == analysis_hash)
+
+
+def _stage_current(store, bookmark_id: int, stage: str, provider: str, analysis_hash: str) -> bool:
+    stage_provider = _stage_provider(stage, provider)
+    if store.analysis_state_current(bookmark_id, stage, stage_provider, analysis_hash):
+        return True
+    return stage == "embed" and _embedding_current(store, bookmark_id, provider, analysis_hash)
+
 
 def analyze_bookmark(
     store,
@@ -41,15 +62,18 @@ def analyze_bookmark(
 
     # Update DB: classifications
     store.set_classifications(bookmark_id, categories, primary, confidence)
+    store.set_analysis_state(bookmark_id, "classify", "", analysis_hash)
 
     # Update DB: entities
     for name, etype, source in entity_tuples:
         entity_id = store.upsert_entity(name, etype, source)
         if entity_id:
             store.add_bookmark_entity(bookmark_id, entity_id, salience=0.5, evidence=text[:200])
+    store.set_analysis_state(bookmark_id, "entities", "", analysis_hash)
 
     # Update DB: embedding
     store.set_embedding(bookmark_id, vector, embed_provider, embed_model, analysis_hash)
+    store.set_analysis_state(bookmark_id, "embed", embed_provider, analysis_hash)
 
     # Update DB: summary/analysis
     store.update_bookmark_analysis(
@@ -85,9 +109,9 @@ def run_analysis(
     progress: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     """Run analysis pipeline on bookmarks."""
-    stages = ["classify", "entities", "embed", "summaries"]
-    if stage not in stages and stage != "all":
-        stages = [stage]
+    stages = list(ANALYSIS_STAGES) if stage == "all" else [stage]
+    if any(item not in ANALYSIS_STAGES for item in stages):
+        raise ValueError(f"Unknown analysis stage: {stage}")
 
     total = 0
     classified = 0
@@ -112,12 +136,12 @@ def run_analysis(
         text = "\n".join([row["tweet_text"] or "", row["raw_text"] or ""])
         text = enriched_text_for_analysis(store, bookmark_id, text)
         analysis_hash = stable_hash(text)
+        active_stages = stages
         if changed_only:
-            existing_embedding = store.conn.execute(
-                "SELECT content_hash FROM embeddings WHERE bookmark_id = ? AND provider = ? ORDER BY updated_at DESC LIMIT 1",
-                (bookmark_id, provider),
-            ).fetchone()
-            if existing_embedding and existing_embedding["content_hash"] == analysis_hash:
+            active_stages = [
+                item for item in stages if not _stage_current(store, bookmark_id, item, provider, analysis_hash)
+            ]
+            if not active_stages:
                 if progress:
                     progress(f"analysis: {index}/{selected} skipped unchanged {status_id}")
                 continue
@@ -125,7 +149,7 @@ def run_analysis(
         if progress:
             progress(f"analysis: {index}/{selected} processing {status_id}")
 
-        if "all" in stages or "classify" in stages:
+        if "classify" in active_stages:
             links_rows = store.get_bookmark_links(bookmark_id)
             links = [r["url"] for r in links_rows]
             result = classify_text(text, links)
@@ -141,9 +165,10 @@ def run_analysis(
                 needs_review=result.get("needs_review", True),
             )
             store.add_tags(bookmark_id, result.get("tags", []))
+            store.set_analysis_state(bookmark_id, "classify", "", analysis_hash)
             classified += 1
 
-        if "all" in stages or "entities" in stages:
+        if "entities" in active_stages:
             links_rows = store.get_bookmark_links(bookmark_id)
             links = [r["url"] for r in links_rows]
             entity_tuples = extract_entities(text, links)
@@ -151,11 +176,13 @@ def run_analysis(
                 entity_id = store.upsert_entity(name, etype, source)
                 if entity_id:
                     store.add_bookmark_entity(bookmark_id, entity_id, salience=0.5, evidence=text[:200])
+            store.set_analysis_state(bookmark_id, "entities", "", analysis_hash)
             entities_added += len(entity_tuples)
 
-        if "all" in stages or "embed" in stages:
+        if "embed" in active_stages:
             vector, embed_provider, embed_model = embed_text(text, provider=provider)
             store.set_embedding(bookmark_id, vector, embed_provider, embed_model, analysis_hash)
+            store.set_analysis_state(bookmark_id, "embed", embed_provider, analysis_hash)
             embedded += 1
 
     return {

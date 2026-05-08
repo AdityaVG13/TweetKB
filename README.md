@@ -307,9 +307,10 @@ TweetKB builds exports from the local SQLite database:
    or article text, optional outbound linked pages, question-aware thread/reply
    context, and visible image metadata when the page exposes it.
 3. Analysis joins the original tweet text with captured enrichments, hashes that
-   combined text for changed-only skips, then classifies categories, extracts
-   entities, creates tags/summaries, writes "why it matters", and stores an
-   embedding.
+   combined text, and records per-stage analysis state so changed-only runs skip
+   unchanged classification, entity extraction, and embedding work. Then it
+   classifies categories, extracts entities, creates tags/summaries, writes
+   "why it matters", and stores an embedding when that stage is selected.
 4. Export turns the stored analysis into the selected format. Markdown/Obsidian
    write note files. `spec` writes one interactive HTML analysis bundle.
 

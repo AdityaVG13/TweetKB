@@ -5,7 +5,7 @@ from tweetkb.migrations import SCHEMA_VERSION, migrate
 
 def test_schema_version():
     """Schema version is set correctly."""
-    assert SCHEMA_VERSION == 3
+    assert SCHEMA_VERSION == 4
 
 
 def test_migrate_creates_tables(tmp_path: Path):
@@ -68,6 +68,8 @@ def test_migrate_legacy_v1_preserves_bookmarks(tmp_path: Path):
     assert row["review_state"] == "new"
     classification = conn.execute("SELECT category_slug FROM classifications WHERE bookmark_id = ?", (row["id"],)).fetchone()
     assert classification["category_slug"] == "ai-agents"
+    version = conn.execute("SELECT max(version) AS v FROM schema_migrations").fetchone()["v"]
+    assert version == 4
     tag = conn.execute(
         """SELECT t.name FROM tags t
            JOIN bookmark_tags bt ON bt.tag_id = t.id
@@ -117,6 +119,9 @@ def test_repair_v2_adds_review_state(tmp_path: Path):
     assert "processing_events" in [
         r["name"] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
     ]
+    assert "analysis_state" in [
+        r["name"] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    ]
     conn.close()
 
 
@@ -131,5 +136,18 @@ def test_migrate_adds_content_enrichments(tmp_path: Path):
     tables = [r["name"] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
     assert "content_enrichments" in tables
     version = conn.execute("SELECT max(version) AS v FROM schema_migrations").fetchone()["v"]
-    assert version == 3
+    assert version == 4
+    conn.close()
+
+
+def test_migrate_adds_analysis_state(tmp_path: Path):
+    """Migration creates per-stage analysis state storage."""
+    import sqlite3
+
+    db_path = tmp_path / "analysis-state.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    migrate(conn)
+    tables = [r["name"] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+    assert "analysis_state" in tables
     conn.close()

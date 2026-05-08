@@ -215,6 +215,26 @@ class Store:
         )
         self.conn.commit()
 
+    def analysis_state_current(self, bookmark_id: int, stage: str, provider: str, content_hash: str) -> bool:
+        row = self.conn.execute(
+            """SELECT content_hash FROM analysis_state
+               WHERE bookmark_id = ? AND stage = ? AND provider = ?""",
+            (bookmark_id, stage, provider),
+        ).fetchone()
+        return bool(row and row["content_hash"] == content_hash)
+
+    def set_analysis_state(self, bookmark_id: int, stage: str, provider: str, content_hash: str) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        self.conn.execute(
+            """INSERT INTO analysis_state(bookmark_id, stage, provider, content_hash, updated_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(bookmark_id, stage, provider) DO UPDATE SET
+                 content_hash=excluded.content_hash,
+                 updated_at=excluded.updated_at""",
+            (bookmark_id, stage, provider, content_hash, now),
+        )
+        self.conn.commit()
+
     def set_content_enrichment(
         self,
         bookmark_id: int,
