@@ -257,6 +257,7 @@ uv run tweetkb enrich --apple-events --include-conversation always --max-convers
 uv run tweetkb enrich --apple-events --include-links --max-links 3
 OPENAI_API_KEY=... uv run tweetkb enrich --apple-events --include-media --vision-provider openai --vision-detail high
 uv run tweetkb enrich --apple-events --include-media --vision-provider ollama --vision-model llava
+uv run tweetkb media-export --out ./exports/media-review
 uv run tweetkb analyze --stage all
 ```
 
@@ -265,6 +266,11 @@ Vision providers:
 - `openai`: sends image URLs to the OpenAI Responses API. Requires `OPENAI_API_KEY`.
 - `ollama`: downloads images locally and sends them to an Ollama vision model.
 - `metadata`: stores captured image alt text only, useful as a no-model fallback.
+
+If you do not want to configure a vision API key, run `media-export` after
+enrichment. It downloads captured tweet images into a folder with
+`manifest.jsonl`, `index.md`, and `AI_REVIEW_PROMPT.md` so you can point any
+AI assistant at the folder for manual visual analysis.
 
 Conversation modes:
 

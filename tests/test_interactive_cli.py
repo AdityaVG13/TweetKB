@@ -141,3 +141,12 @@ def test_interactive_export_builds_obsidian_command():
         "--min-confidence",
         "0.5",
     ]
+
+
+def test_interactive_media_export_builds_bundle_command():
+    command = _interactive_command_for_choice(
+        "17",
+        input_fn=_answers(["./exports/media-review", "25", "n"]),
+    )
+
+    assert command == ["media-export", "--out", "./exports/media-review", "--limit", "25"]

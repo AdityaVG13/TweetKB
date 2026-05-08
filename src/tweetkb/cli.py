@@ -196,6 +196,11 @@ def main(argv: list[str] | None = None) -> int:
     # doctor
     sub.add_parser("doctor", help="Diagnose system health")
 
+    media_export = sub.add_parser("media-export", help="Export captured tweet images for manual AI review")
+    media_export.add_argument("--out", "-o", type=Path, default=Path("exports/media-review"))
+    media_export.add_argument("--limit", type=int, default=None)
+    media_export.add_argument("--manifest-only", action="store_true", help="Write manifest and prompt without downloading images")
+
     release_audit = sub.add_parser("release-audit", help="Scan tracked files for public-release blockers")
     release_audit.add_argument("--strict-worktree", action="store_true", help="Also fail on ignored local data files")
 
@@ -263,6 +268,7 @@ def _interactive_menu() -> int:
                     "14. Doctor",
                     "15. Release audit",
                     "16. Run custom command",
+                    "17. Export media review bundle",
                     "0. Quit",
                 ]
             )
@@ -407,6 +413,14 @@ def _interactive_command_for_choice(choice: str, input_fn=input) -> list[str] | 
     if choice == "16":
         raw = _prompt_text("Command after `tweetkb`", "", input_fn)
         return shlex.split(raw) if raw else []
+    if choice == "17":
+        command = ["media-export", "--out", _prompt_text("Output folder", "exports/media-review", input_fn)]
+        limit = _prompt_text("Limit", "", input_fn)
+        if limit:
+            command.extend(["--limit", limit])
+        if _prompt_bool("Manifest only?", default=False, input_fn=input_fn):
+            command.append("--manifest-only")
+        return command
     return None
 
 
@@ -682,6 +696,21 @@ def _dispatch(args, db_path: Path) -> int:
 
     if args.cmd == "compact":
         return _cmd_compact(args, store)
+
+    if args.cmd == "media-export":
+        from .media_export import export_media_bundle
+
+        result = export_media_bundle(
+            store,
+            args.out,
+            limit=args.limit,
+            download=not args.manifest_only,
+        )
+        print(
+            f"tweets={result.tweets} images={result.images} downloaded={result.downloaded} "
+            f"failed={result.failed} out={result.out_dir}"
+        )
+        return 0
 
     if args.cmd == "serve":
         store.close()
