@@ -61,9 +61,13 @@ uv run tweetkb collect --limit 100 --batch-size 20
 
 ## Browser Modes
 
-Interactive collection defaults to `normal-chrome`, which attaches to your
-already-open normal Chrome `https://x.com/i/bookmarks` tab. Use this when your
-normal browser is already logged in to X.
+Interactive collection defaults to `apple-events`, which reads your already-open
+normal Chrome `https://x.com/i/bookmarks` tab. Use this when your normal browser
+is already logged in to X.
+
+With `--all`, collection stops after it reaches already-saved bookmark history.
+Use `--no-stop-at-existing` only when you intentionally want a full timeline
+rescan.
 
 Normal Chrome profile:
 

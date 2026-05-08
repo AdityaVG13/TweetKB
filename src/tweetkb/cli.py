@@ -53,6 +53,18 @@ def main(argv: list[str] | None = None) -> int:
     collect.add_argument("--normal-chrome", action="store_true")
     collect.add_argument("--apple-events", action="store_true")
     collect.add_argument("--all", action="store_true", help="Collect all bookmarks")
+    collect.add_argument(
+        "--stop-at-existing",
+        action="store_true",
+        default=True,
+        help="When collecting --all, stop after reaching already-saved bookmark history.",
+    )
+    collect.add_argument(
+        "--no-stop-at-existing",
+        dest="stop_at_existing",
+        action="store_false",
+        help="When collecting --all, rescan the whole bookmark timeline.",
+    )
 
     # enrich
     enrich = sub.add_parser("enrich", help="Open saved X bookmarks and capture full tweet/article content")
@@ -302,8 +314,8 @@ def _interactive_command_for_choice(choice: str, input_fn=input) -> list[str] | 
         command = ["collect"]
         mode = _prompt_choice(
             "Collection mode",
-            ["normal-chrome", "browser-harness", "apple-events"],
-            default="normal-chrome",
+            ["apple-events", "normal-chrome", "browser-harness"],
+            default="apple-events",
             input_fn=input_fn,
         )
         if mode == "normal-chrome":
@@ -559,6 +571,12 @@ def _dispatch(args, db_path: Path) -> int:
         )
         if mode == "browser-harness":
             print("browser-harness: using local managed Chrome; no AI model or cloud API is used.", flush=True)
+        if args.all and args.stop_at_existing:
+            print(
+                "collect: will stop once already-saved bookmark history is reached "
+                "(use --no-stop-at-existing to rescan everything).",
+                flush=True,
+            )
         result = collector.collect(
             collect_limit,
             args.batch_size,
@@ -567,6 +585,7 @@ def _dispatch(args, db_path: Path) -> int:
             normal_chrome=args.normal_chrome,
             apple_events=args.apple_events,
             all_bookmarks=args.all,
+            stop_at_existing=args.stop_at_existing,
         )
         if result.login_required:
             print("X login required. Run `uv run tweetkb login`, finish login, then rerun collect.")

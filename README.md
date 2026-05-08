@@ -193,17 +193,21 @@ browser-harness --setup
 browser-harness --doctor
 ```
 
-TweetKB calls `browser-harness` for the default collection mode and launches the
-managed local Chrome profile if needed. This collector is deterministic local
-CDP automation, not an AI browser agent, so it does not need an LLM model or
+TweetKB can collect through Browser-Harness managed Chrome, normal Chrome CDP,
+or macOS Apple Events. These collectors are deterministic local browser
+automation, not AI browser agents, so collection does not need an LLM model or
 Browser Use cloud API.
 
 See [Browser-Harness setup](docs/BROWSER_HARNESS.md) for managed Chrome,
 normal Chrome, and troubleshooting notes.
 
-Interactive collection defaults to your already-open normal Chrome bookmarks tab.
-Open `https://x.com/i/bookmarks`, then choose `3. Collect bookmarks` and press
-Enter for `normal-chrome`.
+Interactive collection defaults to Apple Events against your already-open normal
+Chrome bookmarks tab. Open `https://x.com/i/bookmarks`, then choose
+`3. Collect bookmarks` and press Enter for `apple-events`.
+
+When you collect `--all`, TweetKB stops after it reaches already-saved bookmark
+history. Use `--no-stop-at-existing` only when you intentionally want a full
+timeline rescan.
 
 Default Browser-Harness collection:
 

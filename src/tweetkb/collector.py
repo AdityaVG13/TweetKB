@@ -99,14 +99,18 @@ class BrowserHarnessCollector:
         normal_chrome: bool = False,
         apple_events: bool = False,
         all_bookmarks: bool = False,
+        stop_at_existing: bool = True,
     ) -> CollectResult:
         self.ensure_available()
+        known_status_ids = self._known_status_ids() if stop_at_existing else set()
         if apple_events:
             payload = self._collect_with_apple_events(
                 limit=limit,
                 batch_size=batch_size,
                 wait_seconds=wait_seconds,
                 all_bookmarks=all_bookmarks,
+                known_status_ids=known_status_ids,
+                stop_at_existing=stop_at_existing,
             )
             payload = self._apply_limit(payload, limit, all_bookmarks)
             return self._save_payload(payload)
@@ -118,6 +122,8 @@ class BrowserHarnessCollector:
             wait_seconds=wait_seconds,
             existing_tab=existing_tab,
             all_bookmarks=all_bookmarks,
+            known_status_ids=known_status_ids,
+            stop_at_existing=stop_at_existing,
         )
         env = os.environ.copy()
         if normal_chrome and "BU_CDP_WS" not in env:
@@ -139,6 +145,8 @@ class BrowserHarnessCollector:
                         batch_size=batch_size,
                         wait_seconds=wait_seconds,
                         all_bookmarks=all_bookmarks,
+                        known_status_ids=known_status_ids,
+                        stop_at_existing=stop_at_existing,
                     )
                     payload = self._apply_limit(payload, limit, all_bookmarks)
                     return self._save_payload(payload)
@@ -162,6 +170,13 @@ class BrowserHarnessCollector:
             )
 
         return self._save_payload(payload)
+
+    def _known_status_ids(self) -> set[str]:
+        try:
+            rows = self.store.conn.execute("SELECT status_id FROM bookmarks WHERE is_deleted = 0").fetchall()
+        except Exception:
+            return set()
+        return {str(row["status_id"]) for row in rows if row["status_id"]}
 
     def _apply_limit(self, payload: dict[str, Any], limit: int | None, all_bookmarks: bool) -> dict[str, Any]:
         if all_bookmarks or limit is None:
@@ -261,16 +276,30 @@ class BrowserHarnessCollector:
             stderr="".join(stderr_lines),
         )
 
-    def _collect_with_apple_events(self, limit: int | None, batch_size: int, wait_seconds: float, all_bookmarks: bool = False) -> dict[str, Any]:
+    def _collect_with_apple_events(
+        self,
+        limit: int | None,
+        batch_size: int,
+        wait_seconds: float,
+        all_bookmarks: bool = False,
+        known_status_ids: set[str] | None = None,
+        stop_at_existing: bool = True,
+    ) -> dict[str, Any]:
         extractor_js = self._extractor_js()
         max_batches = 5000 if all_bookmarks else 200
         limit_check = "false" if all_bookmarks else f"currentCount >= {int(limit or 100)}"
+        known_json = json.dumps({status_id: True for status_id in sorted(known_status_ids or set())})
+        stop_existing_check = (
+            "newCount = previousNewCount and currentCount > 0" if all_bookmarks and stop_at_existing else "false"
+        )
         script = f"""
         on run
           set collected to "{{}}"
           set batches to 0
           set stagnant to 0
+          set existingStagnant to 0
           set previousCount to 0
+          set previousNewCount to 0
           set metrics to "{{}}"
           tell application {json.dumps(self.browser_app)}
             if not (exists front window) then error "No Chrome window is open"
@@ -278,20 +307,28 @@ class BrowserHarnessCollector:
               repeat while batches < {max_batches}
                 set pageUrl to execute javascript "location.href"
                 if pageUrl contains "flow/login" then return "TWEETKB_JSON=" & "{{\\"login_required\\":true,\\"url\\":\\"" & pageUrl & "\\"}}"
-                if batches = 0 then execute javascript "window.__tweetkbSeen = {{}}; window.scrollTo(0, 0)"
+                if batches = 0 then execute javascript "window.__tweetkbSeen = {{}}; window.__tweetkbKnown = {known_json}; window.scrollTo(0, 0)"
                 set rawItems to execute javascript {json.dumps(extractor_js)}
                 set collected to rawItems
                 set metrics to execute javascript "JSON.stringify({{scroll_y: Math.round(window.scrollY), page_height: document.documentElement.scrollHeight, visible_articles: document.querySelectorAll('article').length}})"
                 set batches to batches + 1
                 set currentCount to execute javascript "Object.keys(window.__tweetkbSeen || {{}}).length"
+                set newCount to execute javascript "Object.keys(window.__tweetkbSeen || {{}}).filter(id => !(window.__tweetkbKnown || {{}})[id]).length"
                 if {limit_check} then exit repeat
                 if currentCount = previousCount then
                   set stagnant to stagnant + 1
                 else
                   set stagnant to 0
                 end if
+                if {stop_existing_check} then
+                  set existingStagnant to existingStagnant + 1
+                else
+                  set existingStagnant to 0
+                end if
                 if stagnant >= 10 then exit repeat
+                if existingStagnant >= 5 then exit repeat
                 set previousCount to currentCount
+                set previousNewCount to newCount
                 execute javascript "window.scrollBy(0, " & "{int(batch_size) * 220}" & ")"
                 delay {float(wait_seconds)}
               end repeat
@@ -329,6 +366,8 @@ class BrowserHarnessCollector:
         wait_seconds: float,
         existing_tab: bool,
         all_bookmarks: bool = False,
+        known_status_ids: set[str] | None = None,
+        stop_at_existing: bool = True,
     ) -> str:
         extractor_js = self._extractor_js()
         return textwrap.dedent(
@@ -337,7 +376,16 @@ class BrowserHarnessCollector:
             """
         ).replace(
             "@@SCRIPT_BODY@@",
-            self._browser_script_body(limit, batch_size, wait_seconds, existing_tab, extractor_js, all_bookmarks),
+            self._browser_script_body(
+                limit,
+                batch_size,
+                wait_seconds,
+                existing_tab,
+                extractor_js,
+                all_bookmarks,
+                known_status_ids or set(),
+                stop_at_existing,
+            ),
         )
 
     def _extractor_js(self) -> str:
@@ -383,10 +431,14 @@ class BrowserHarnessCollector:
         existing_tab: bool,
         extractor_js: str,
         all_bookmarks: bool = False,
+        known_status_ids: set[str] | None = None,
+        stop_at_existing: bool = True,
     ) -> str:
         target_limit = "None" if all_bookmarks else str(int(limit or 100))
         max_batches = 5000 if all_bookmarks else 200
         stagnant_limit = 10 if all_bookmarks else 5
+        known_ids_literal = repr(sorted(known_status_ids or set()))
+        stop_existing_enabled = bool(all_bookmarks and stop_at_existing)
         return textwrap.dedent(
             f"""
             import json, time
@@ -435,8 +487,11 @@ class BrowserHarnessCollector:
                 seen = {{}}
                 batches = 0
                 stagnant = 0
+                existing_stagnant = 0
+                previous_new_count = 0
                 metrics = {{}}
                 target_limit = {target_limit}
+                known_status_ids = set({known_ids_literal})
                 while batches < {max_batches} and stagnant < {stagnant_limit}:
                     raw = eval_in_tab({extractor_js!r})
                     items = json.loads(raw or "[]")
@@ -449,11 +504,17 @@ class BrowserHarnessCollector:
                         stagnant += 1
                     else:
                         stagnant = 0
+                    new_count = sum(1 for status_id in seen if status_id not in known_status_ids)
+                    if {stop_existing_enabled!r} and len(seen) > 0 and new_count == previous_new_count:
+                        existing_stagnant += 1
+                    else:
+                        existing_stagnant = 0
                     metrics_raw = eval_in_tab("JSON.stringify({{scroll_y: Math.round(window.scrollY), page_height: document.documentElement.scrollHeight, visible_articles: document.querySelectorAll('article').length}})")
                     metrics = json.loads(metrics_raw or "{{}}")
                     print(
-                        "tweetkb progress: seen={{}} batches={{}} scroll_y={{}} page_height={{}} visible_articles={{}}".format(
+                        "tweetkb progress: seen={{}} new={{}} batches={{}} scroll_y={{}} page_height={{}} visible_articles={{}}".format(
                             len(seen),
+                            new_count,
                             batches,
                             metrics.get("scroll_y", 0),
                             metrics.get("page_height", 0),
@@ -463,6 +524,9 @@ class BrowserHarnessCollector:
                     )
                     if target_limit is not None and len(seen) >= target_limit:
                         break
+                    if existing_stagnant >= 5:
+                        break
+                    previous_new_count = new_count
                     eval_in_tab("window.scrollBy(0, " + str({int(batch_size) * 220}) + ")")
                     time.sleep({float(wait_seconds)})
                 items = list(seen.values())

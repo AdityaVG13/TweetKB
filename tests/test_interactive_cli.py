@@ -15,22 +15,13 @@ def test_interactive_collect_builds_apple_events_command():
     assert command == ["collect", "--apple-events", "--all", "--batch-size", "20", "--wait", "1.5"]
 
 
-def test_interactive_collect_defaults_to_normal_chrome_existing_tab():
+def test_interactive_collect_defaults_to_apple_events():
     command = _interactive_command_for_choice(
         "3",
         input_fn=_answers(["", "y", "", ""]),
     )
 
-    assert command == [
-        "collect",
-        "--normal-chrome",
-        "--existing-tab",
-        "--all",
-        "--batch-size",
-        "20",
-        "--wait",
-        "1.5",
-    ]
+    assert command == ["collect", "--apple-events", "--all", "--batch-size", "20", "--wait", "1.5"]
 
 
 def test_interactive_analyze_builds_filtered_command():

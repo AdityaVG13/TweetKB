@@ -31,6 +31,7 @@ def test_collect_all_dispatch_uses_unbounded_limit(monkeypatch, tmp_path, capsys
         existing_tab=False,
         normal_chrome=False,
         apple_events=False,
+        stop_at_existing=True,
     )
 
     assert _dispatch(args, tmp_path / "bookmarks.sqlite3") == 0
@@ -40,8 +41,10 @@ def test_collect_all_dispatch_uses_unbounded_limit(monkeypatch, tmp_path, capsys
     assert calls["batch_size"] == 20
     assert calls["wait"] == 1.5
     assert calls["kwargs"]["all_bookmarks"] is True
+    assert calls["kwargs"]["stop_at_existing"] is True
     output = capsys.readouterr().out
     assert "collect: limit=all" in output
+    assert "will stop once already-saved bookmark history is reached" in output
     assert "no AI model or cloud API is used" in output
 
 
@@ -62,6 +65,49 @@ def test_browser_harness_all_script_is_unbounded(tmp_path):
     assert "target_limit = None" in script
     assert "while batches < 5000 and stagnant < 10:" in script
     assert "tweetkb progress:" in script
+    compile(script, "<browser-harness-script>", "exec")
+
+
+def test_browser_harness_all_script_stops_after_existing_history(tmp_path):
+    collector = BrowserHarnessCollector(
+        store=object(),
+        checkpoint=Checkpoint(tmp_path / "checkpoint.json"),
+    )
+
+    script = collector._browser_script(
+        limit=None,
+        batch_size=20,
+        wait_seconds=0.01,
+        existing_tab=False,
+        all_bookmarks=True,
+        known_status_ids={"2", "1"},
+        stop_at_existing=True,
+    )
+
+    assert "known_status_ids = set(['1', '2'])" in script
+    assert "new_count = sum(1 for status_id in seen if status_id not in known_status_ids)" in script
+    assert "if existing_stagnant >= 5:" in script
+    assert "tweetkb progress: seen={} new={}" in script
+    compile(script, "<browser-harness-script>", "exec")
+
+
+def test_browser_harness_all_script_can_disable_existing_history_stop(tmp_path):
+    collector = BrowserHarnessCollector(
+        store=object(),
+        checkpoint=Checkpoint(tmp_path / "checkpoint.json"),
+    )
+
+    script = collector._browser_script(
+        limit=None,
+        batch_size=20,
+        wait_seconds=0.01,
+        existing_tab=False,
+        all_bookmarks=True,
+        known_status_ids={"1"},
+        stop_at_existing=False,
+    )
+
+    assert "if False and len(seen) > 0 and new_count == previous_new_count:" in script
     compile(script, "<browser-harness-script>", "exec")
 
 
