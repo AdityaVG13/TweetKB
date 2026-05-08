@@ -238,7 +238,7 @@ def _interactive_menu() -> int:
                     "2. Open login browser",
                     "3. Collect bookmarks",
                     "4. Analyze bookmarks",
-                    "4e. Analyze + export to folder",
+                    "4a. Analyze + export to folder",
                     "5. Enrich saved bookmarks",
                     "6. Export",
                     "7. Review",
@@ -301,7 +301,7 @@ def _interactive_command_for_choice(choice: str, input_fn=input) -> list[str] | 
         command = ["analyze"]
         _append_interactive_analysis_args(command, input_fn)
         return command
-    if choice in {"4e", "ae", "analyze-export"}:
+    if choice in {"4a", "4e", "ae", "analyze-export"}:
         command = ["analyze-export"]
         _append_interactive_analysis_args(command, input_fn, default_stage="all")
         _append_interactive_export_args(command, input_fn, default_adapter="spec")

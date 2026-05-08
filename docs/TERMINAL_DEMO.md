@@ -13,6 +13,7 @@ Local bookmark knowledge base
 2. Open login browser
 3. Collect bookmarks
 4. Analyze bookmarks
+4a. Analyze + export to folder
 5. Enrich saved bookmarks
 6. Export
 7. Review

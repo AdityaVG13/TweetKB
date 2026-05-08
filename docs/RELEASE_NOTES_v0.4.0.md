@@ -3,7 +3,7 @@ TweetKB v0.4.0 adds richer X conversation analysis and an interactive analysis s
 - Added question-aware thread/reply enrichment for bookmarked X posts.
 - Added `--include-conversation auto|always|never` to `tweetkb enrich`.
 - Added `tweetkb analyze-export` for running analysis and export in one command.
-- Added terminal menu option `4e. Analyze + export to folder`.
+- Added terminal menu option `4a. Analyze + export to folder`.
 - Added `spec` export, a local interactive `index.html` with search, filters, expandable analysis sections, captured context, links, entities, tags, and visible media metadata.
 - Persisted collected links into the local database so exports can show the links used by analysis.
 - Captured visible image URL/alt metadata during enrichment when X exposes it.

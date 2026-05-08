@@ -38,7 +38,7 @@ def test_interactive_analyze_builds_filtered_command():
 
 def test_interactive_analyze_export_builds_folder_command():
     command = _interactive_command_for_choice(
-        "4e",
+        "4a",
         input_fn=_answers(["all", "local-hash", "y", "ai-agents", "", "any", "", "50", "markdown", "./exports/notes", "n", "0.4"]),
     )
 
