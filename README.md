@@ -10,6 +10,13 @@ JSONL, or CSV.
 It does not ship with a bookmark database. It does not upload your archive. It
 does not need your X/Twitter password.
 
+## Support
+
+TweetKB is free and open source. If it saves you time, you can support the work
+on Ko-fi: <https://ko-fi.com/adityavg13>
+
+Donations help support more open-source projects and continued maintenance.
+
 ## What it does
 
 - Collects bookmarks from a logged-in browser session
