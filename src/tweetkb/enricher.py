@@ -253,7 +253,9 @@ def capture_x_content_with_apple_events(
       text
     };
   }));
-  const articleLike = [
+  const isXArticle = /\/i\/article\//.test(location.href);
+  const articleBody = textOf(document.querySelector('[data-testid="article"]'));
+  const articleLike = articleBody || [
     document.querySelector('[data-testid="article"]'),
     document.querySelector('article'),
     document.querySelector('main')
@@ -281,14 +283,15 @@ def capture_x_content_with_apple_events(
       return null;
     }
   }).filter(Boolean));
-  const content = unique([...tweetTexts, articleLike, mainText])
+  const contentParts = isXArticle && articleLike ? [...tweetTexts, articleLike] : [...tweetTexts, articleLike, mainText];
+  const content = unique(contentParts)
     .join('\n\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
   return JSON.stringify({
     url: location.href,
     title: document.title || '',
-    source_type: /\/i\/article\//.test(location.href) ? 'x-article' : 'x-status',
+    source_type: isXArticle ? 'x-article' : 'x-status',
     content_text: content,
     tweet_texts: tweetTexts,
     conversation_items: conversationItems,
@@ -302,6 +305,16 @@ def capture_x_content_with_apple_events(
 (() => {
   window.scrollTo(0, Math.max(0, window.innerHeight * 0.8));
   return true;
+})()
+"""
+    article_scroll_js = r"""
+(() => {
+  const root = document.scrollingElement || document.documentElement;
+  const height = root.scrollHeight || document.documentElement.scrollHeight || 0;
+  const stable = window.__tweetkbArticleScrollHeight === height;
+  window.__tweetkbArticleScrollHeight = height;
+  window.scrollTo(0, height);
+  return stable;
 })()
 """
     script = f"""
@@ -327,7 +340,19 @@ def capture_x_content_with_apple_events(
           if currentUrl does not contain {json.dumps(status_id)} then error "Chrome did not navigate to requested status URL"
           set clickedArticle to execute javascript {json.dumps(click_js)}
         end tell
-        if clickedArticle is true then delay {float(wait_seconds)}
+        if clickedArticle is true then
+          delay {float(wait_seconds)}
+          tell active tab of front window
+            execute javascript "window.__tweetkbArticleScrollHeight = 0; window.scrollTo(0, 0)"
+          end tell
+          repeat 12 times
+            tell active tab of front window
+              set articleStable to execute javascript {json.dumps(article_scroll_js)}
+            end tell
+            delay 0.5
+            if articleStable is true then exit repeat
+          end repeat
+        end if
         if {str(bool(include_conversation)).lower()} is true and clickedArticle is false then
           tell active tab of front window
             execute javascript {json.dumps(conversation_scroll_js)}

@@ -1,4 +1,6 @@
-from tweetkb.enricher import _candidate_outbound_links, enrich_with_apple_events
+from types import SimpleNamespace
+
+from tweetkb.enricher import _candidate_outbound_links, capture_x_content_with_apple_events, enrich_with_apple_events
 
 
 def test_candidate_outbound_links_skips_x_help_and_cookie_links():
@@ -56,3 +58,25 @@ def test_enrich_stores_conversation_for_question(monkeypatch):
     assert result.conversations == 1
     assert calls[1]["source_type"] == "x-conversation"
     assert "Use a small golden set first." in calls[1]["content_text"]
+
+
+def test_capture_x_article_scrolls_before_extracting(monkeypatch):
+    scripts = []
+
+    def fake_run(args, input, text, stdout, stderr, check):
+        scripts.append(input)
+        return SimpleNamespace(
+            returncode=0,
+            stdout='TWEETKB_JSON={"url":"https://x.com/i/article/1","source_type":"x-article","content_text":"full"}',
+            stderr="",
+        )
+
+    monkeypatch.setattr("tweetkb.enricher.subprocess.run", fake_run)
+
+    payload = capture_x_content_with_apple_events("https://x.com/a/status/1")
+
+    assert payload["source_type"] == "x-article"
+    script = scripts[0]
+    assert "repeat 12 times" in script
+    assert "window.__tweetkbArticleScrollHeight" in script
+    assert "const contentParts = isXArticle && articleLike" in script
