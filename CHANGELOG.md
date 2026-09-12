@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.1
+
+- Default archive is `$XDG_DATA_HOME/tweetkb/bookmarks.sqlite3` (usually `~/.local/share/tweetkb/bookmarks.sqlite3`) so `tweetkb` works from any directory. Existing `./data/bookmarks.sqlite3` still wins. Override with `--db` or `TWEETKB_DB`.
+- The published tree still ships no bookmark database — only `data/.gitkeep`.
+
 ## 0.6.0
 
 - Product is gather → SQLite → search → analyze. Removed TweetZip/compress v1–v6 and the stale roadmap.

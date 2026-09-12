@@ -4,10 +4,48 @@ import os
 from pathlib import Path
 from typing import Any
 
-DEFAULT_CONFIG_LOCATIONS = [
-    Path("tweetkb.toml"),
-    Path.home() / ".config" / "tweetkb" / "tweetkb.toml",
-]
+
+def config_locations() -> list[Path]:
+    return [
+        Path("tweetkb.toml"),
+        Path.home() / ".config" / "tweetkb" / "tweetkb.toml",
+    ]
+
+
+CWD_DB = Path("data/bookmarks.sqlite3")
+
+
+def user_data_db() -> Path:
+    xdg = os.environ.get("XDG_DATA_HOME")
+    root = Path(xdg) if xdg else Path.home() / ".local" / "share"
+    return root / "tweetkb" / "bookmarks.sqlite3"
+
+
+def resolve_db_path(cli_db: str | Path | None = None) -> Path:
+    """Where the archive lives. Agents can run this from any directory.
+
+    Order: --db, TWEETKB_DB, existing ./data/bookmarks.sqlite3, absolute path
+    in a config file, then ~/.local/share/tweetkb/bookmarks.sqlite3.
+    """
+    if cli_db:
+        return Path(os.path.expandvars(str(cli_db))).expanduser().resolve()
+    if env := os.environ.get("TWEETKB_DB"):
+        return Path(os.path.expandvars(env)).expanduser().resolve()
+    if CWD_DB.exists():
+        return CWD_DB.resolve()
+    for loc in config_locations():
+        if not loc.exists():
+            continue
+        raw = (_load_toml(loc).get("database") or {}).get("path")
+        if not raw:
+            continue
+        text = str(raw)
+        path = Path(os.path.expandvars(text)).expanduser()
+        if path.is_absolute() or text.startswith("~") or "$" in text:
+            return path.resolve()
+        if path.exists():
+            return path.resolve()
+    return user_data_db().resolve()
 
 
 def load_config(config_path: Path | None = None) -> dict[str, Any]:
@@ -38,7 +76,7 @@ def load_config(config_path: Path | None = None) -> dict[str, Any]:
     if config_path and config_path.exists():
         config = _merge_config(config, _load_toml(config_path))
     else:
-        for loc in DEFAULT_CONFIG_LOCATIONS:
+        for loc in config_locations():
             if loc.exists():
                 config = _merge_config(config, _load_toml(loc))
                 break

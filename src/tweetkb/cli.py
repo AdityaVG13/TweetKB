@@ -8,8 +8,7 @@ from pathlib import Path
 
 from .checkpoint import Checkpoint
 from .collector import BrowserHarnessCollector
-from .config import load_config
-from .db import DEFAULT_DB
+from .config import load_config, resolve_db_path
 from .db import Store as DBStore
 from .exporters import ADAPTERS
 from .exporters.csv import export_csv
@@ -300,8 +299,7 @@ def main(argv: list[str] | None = None) -> int:
             return 130
 
     # Resolve db path
-    db_path = args.db or load_config().get("database", {}).get("path", str(DEFAULT_DB))
-    db_path = Path(db_path)
+    db_path = resolve_db_path(getattr(args, "db", None))
 
     try:
         return _dispatch(args, db_path)

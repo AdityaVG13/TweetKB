@@ -42,6 +42,7 @@ tweetkb search rust --json
 ```
 
 That gives you the direct `tweetkb` command. No `uv run` needed after install.
+`tweetkb init` creates `~/.local/share/tweetkb/bookmarks.sqlite3` (or `$XDG_DATA_HOME/tweetkb/...`). After that, search and TUI work from any directory. If `./data/bookmarks.sqlite3` already exists in the current folder, that file is used instead. Override with `--db` or `TWEETKB_DB`.
 
 Use a source checkout when you want to develop. Install the command from that folder so you still type `tweetkb`, not `uv run tweetkb`:
 

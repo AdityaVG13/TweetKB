@@ -25,6 +25,8 @@ def test_capabilities_json_declares_offline_no_llm(capsys):
     assert payload["default_analyze_provider"] == "local-hash"
     names = {cmd["name"] for cmd in payload["commands"]}
     assert {"search", "collect", "analyze", "next"}.issubset(names)
+    assert payload["database"]["env"] == "TWEETKB_DB"
+    assert "tweetkb/bookmarks.sqlite3" in payload["database"]["default"]
 
 
 def test_unknown_command_suggests_search(capsys):

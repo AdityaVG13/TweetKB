@@ -134,6 +134,10 @@ tweetkb search QUERY --json --limit 20
 ```
 
 If the database is missing, run `tweetkb init` then `tweetkb collect --all`.
+The archive is `$XDG_DATA_HOME/tweetkb/bookmarks.sqlite3` (usually
+`~/.local/share/tweetkb/bookmarks.sqlite3`). An existing
+`./data/bookmarks.sqlite3` in the current directory still wins. Override with
+`--db PATH` or `TWEETKB_DB`. Agents can search from any working directory.
 
 ## Search
 
@@ -232,6 +236,12 @@ def capabilities() -> dict:
         "stdout": "data",
         "stderr": "diagnostics",
         "exit_codes": EXIT_CODES,
+        "database": {
+            "flag": "--db",
+            "env": "TWEETKB_DB",
+            "default": "$XDG_DATA_HOME/tweetkb/bookmarks.sqlite3",
+            "cwd_if_present": "data/bookmarks.sqlite3",
+        },
         "commands": COMMANDS,
     }
 
