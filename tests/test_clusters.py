@@ -1,30 +1,41 @@
-from pathlib import Path
+from __future__ import annotations
+
+from conftest import add_bookmark
 
 from tweetkb.clusters import generate_clusters
-from tweetkb.db import Store
 
 
-def test_generate_clusters_empty_db(tmp_path: Path):
-    """generate_clusters handles empty database."""
-    store = Store(tmp_path / "db.sqlite3")
-    store.init()
-    result = generate_clusters(store)
-    # Returns stats dict when no clusters created
-    assert "clusters_created" in result
-    assert result["clusters_created"] == 0
-    store.close()
+def test_generate_clusters_groups_same_primary_category(store):
+    for status_id, text in (
+        ("1", "browser agent mcp tool use"),
+        ("2", "autonomous agent loop with tool use"),
+        ("3", "multi-agent browser automation"),
+    ):
+        bookmark_id = add_bookmark(store, status_id, text)
+        store.set_classifications(
+            bookmark_id,
+            [{"slug": "ai-agents", "confidence": 0.9, "method": "keyword"}],
+            "ai-agents",
+            0.9,
+        )
+
+    result = generate_clusters(store, min_size=3, min_confidence=0.4)
+
+    assert result["clusters_created"] >= 1
+    assert result["bookmarks_clustered"] == 3
+    members = store.conn.execute("SELECT count(*) AS n FROM cluster_members").fetchone()
+    assert int(members["n"]) == 3
 
 
-def test_generate_clusters_with_bookmarks(tmp_path: Path):
-    """generate_clusters returns stats including bookmarks_clustered."""
-    store = Store(tmp_path / "db.sqlite3")
-    store.init()
-    id1 = store.upsert_bookmark({"status_url": "https://x.com/user/status/1", "tweet_text": "AI agent tool"})
-    id2 = store.upsert_bookmark({"status_url": "https://x.com/user/status/2", "tweet_text": "AI agent workflow"})
-    store.set_classifications(id1, [{"slug": "ai-agents", "confidence": 0.9, "method": "test"}], "ai-agents", 0.9)
-    store.set_classifications(id2, [{"slug": "ai-agents", "confidence": 0.9, "method": "test"}], "ai-agents", 0.9)
-    result = generate_clusters(store)
-    assert "clusters_created" in result
-    assert "bookmarks_clustered" in result
-    assert result["bookmarks_clustered"] == 2
-    store.close()
+def test_generate_clusters_skips_low_confidence(store):
+    bookmark_id = add_bookmark(store, "1", "hello")
+    store.set_classifications(
+        bookmark_id,
+        [{"slug": "misc", "confidence": 0.1, "method": "keyword"}],
+        "misc",
+        0.1,
+    )
+
+    result = generate_clusters(store, min_size=1, min_confidence=0.4)
+
+    assert result["bookmarks_clustered"] == 0

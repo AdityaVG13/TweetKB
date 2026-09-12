@@ -19,7 +19,7 @@ def test_embedding_dims():
 
 
 def test_obsidian_export(tmp_path: Path):
-    store = Store(tmp_path / "db.sqlite3")
+    store = Store(tmp_path / "db.sqlite3", create=True)
     store.init()
     bookmark_id = store.upsert_bookmark({"status_url": "https://x.com/a/status/1", "tweet_text": "AI agent tool"})
     assert bookmark_id
@@ -35,7 +35,7 @@ def test_obsidian_export(tmp_path: Path):
 
 
 def test_obsidian_export_excludes_category(tmp_path: Path):
-    store = Store(tmp_path / "db.sqlite3")
+    store = Store(tmp_path / "db.sqlite3", create=True)
     store.init()
     bookmark_id = store.upsert_bookmark({"status_url": "https://x.com/a/status/1", "tweet_text": "random"})
     assert bookmark_id
@@ -48,7 +48,7 @@ def test_obsidian_export_excludes_category(tmp_path: Path):
 
 
 def test_obsidian_export_includes_category(tmp_path: Path):
-    store = Store(tmp_path / "db.sqlite3")
+    store = Store(tmp_path / "db.sqlite3", create=True)
     store.init()
     agent_id = store.upsert_bookmark({"status_url": "https://x.com/a/status/1", "tweet_text": "agent"})
     misc_id = store.upsert_bookmark({"status_url": "https://x.com/a/status/2", "tweet_text": "misc"})
@@ -62,7 +62,7 @@ def test_obsidian_export_includes_category(tmp_path: Path):
 
 
 def test_spec_export_builds_interactive_html(tmp_path: Path):
-    store = Store(tmp_path / "db.sqlite3")
+    store = Store(tmp_path / "db.sqlite3", create=True)
     store.init()
     bookmark_id = store.upsert_bookmark(
         {
@@ -100,7 +100,7 @@ def test_spec_export_builds_interactive_html(tmp_path: Path):
 
 
 def test_note_filename_contains_status_id(tmp_path: Path):
-    store = Store(tmp_path / "db.sqlite3")
+    store = Store(tmp_path / "db.sqlite3", create=True)
     store.init()
     bookmark_id = store.upsert_bookmark({"status_url": "https://x.com/a/status/99", "tweet_text": "Hello filename"})
     row = store.get_bookmark(bookmark_id)

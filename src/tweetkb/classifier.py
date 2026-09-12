@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import re
 from collections import Counter
 from typing import Any
@@ -175,53 +174,69 @@ ENTITY_RE = re.compile(
 
 
 def classify_text(text: str, links: list[str] | tuple[str, ...] = ()) -> dict[str, Any]:
+    frozen_links = tuple(links)
     lower = text.lower()
+    hits = (
+        *_keyword_hits(lower),
+        *_domain_hits(frozen_links),
+        *_structure_hits(frozen_links),
+    )
     scores: dict[str, float] = {cat: 0.0 for cat in CATEGORIES}
     signals: dict[str, list[str]] = {cat: [] for cat in CATEGORIES}
+    for cat, weight, signal in hits:
+        if cat not in scores:
+            continue
+        scores[cat] += weight
+        signals[cat].append(signal)
+    return _classification_from_scores(text, frozen_links, scores, signals)
 
-    # Keyword matching
-    for cat, words in KEYWORDS.items():
-        for word in words:
-            if word in lower:
-                weight = 2.0 if " " in word else 1.0
-                scores[cat] += weight
-                signals[cat].append(f"keyword:{word}")
 
-    # URL/domain matching
+def _keyword_hits(lower: str) -> tuple[tuple[str, float, str], ...]:
+    return tuple(
+        (cat, 2.0 if " " in word else 1.0, f"keyword:{word}")
+        for cat, words in KEYWORDS.items()
+        for word in words
+        if word in lower
+    )
+
+
+def _domain_hits(links: tuple[str, ...]) -> tuple[tuple[str, float, str], ...]:
+    out: list[tuple[str, float, str]] = []
     for url in links:
         domain = link_domain(url)
-        if domain in DOMAIN_CATEGORY_BOOSTS:
-            for cat, boost in DOMAIN_CATEGORY_BOOSTS[domain].items():
-                scores[cat] += boost
-                signals[cat].append(f"domain:{domain}")
+        boosts = DOMAIN_CATEGORY_BOOSTS.get(domain)
+        if not boosts:
+            continue
+        out.extend((cat, float(boost), f"domain:{domain}") for cat, boost in boosts.items())
+    return tuple(out)
 
-    # Repo detection
-    if "/repo/" in str(links) or re.search(r"github\.com/[\w-]+/[\w.-]+", str(links)):
-        scores["coding"] += 2.0
-        scores["open-source"] += 1.5
-        signals["coding"].append("github-repo")
-        signals["open-source"].append("github-repo")
 
-    # arXiv paper detection
-    if "arxiv.org" in str(links):
-        scores["papers"] += 3.0
-        signals["papers"].append("arxiv-link")
-
-    # Model/tool/repo extraction from URLs
-    repo_match = re.search(r"github\.com/([\w-]+)/([\w.-]+)", str(links))
+def _structure_hits(links: tuple[str, ...]) -> tuple[tuple[str, float, str], ...]:
+    blob = str(links)
+    hits: list[tuple[str, float, str]] = []
+    if "/repo/" in blob or re.search(r"github\.com/[\w-]+/[\w.-]+", blob):
+        hits.append(("coding", 2.0, "github-repo"))
+        hits.append(("open-source", 1.5, "github-repo"))
+    if "arxiv.org" in blob:
+        hits.append(("papers", 3.0, "arxiv-link"))
+    repo_match = re.search(r"github\.com/([\w-]+)/([\w.-]+)", blob)
     if repo_match:
-        scores["coding"] += 1.0
-        signals["coding"].append(f"repo:{repo_match.group(2)}")
+        hits.append(("coding", 1.0, f"repo:{repo_match.group(2)}"))
+    return tuple(hits)
 
-    # Sort by score
+
+def _classification_from_scores(
+    text: str,
+    links: tuple[str, ...],
+    scores: dict[str, float],
+    signals: dict[str, list[str]],
+) -> dict[str, Any]:
     sorted_cats = sorted(scores.items(), key=lambda x: -x[1])
     top_cats = [(cat, score) for cat, score in sorted_cats if score > 0]
-
-    # Build multi-label result
     categories = []
+    total_signal = sum(s for _, s in top_cats) or 1
     for cat, score in top_cats[:5]:
         rationales = signals.get(cat, [])
-        total_signal = sum(s for _, s in top_cats) or 1
         confidence = min(0.95, 0.3 + (score / total_signal) * 0.65)
         categories.append({
             "slug": cat,
@@ -229,20 +244,25 @@ def classify_text(text: str, links: list[str] | tuple[str, ...] = ()) -> dict[st
             "method": "keyword+url",
             "rationale": "; ".join(rationales[:3]) if rationales else "matched category keywords",
         })
-
     primary = categories[0]["slug"] if categories else "misc"
     primary_conf = categories[0]["confidence"] if categories else 0.1
-
+    if not any(item["slug"] == primary for item in categories):
+        categories.append(
+            {
+                "slug": primary,
+                "confidence": primary_conf,
+                "method": "keyword+url",
+                "rationale": "no category keyword match",
+            }
+        )
     extra_tags = {"question"} if looks_like_question(text) else set()
     tags = sorted({primary, *top_terms(text), *domain_tags(links), *extra_tags})
     entities = extract_entities(text, links)
-
     needs_review = (
         primary == "misc"
         or primary_conf < 0.45
         or len([c for c in categories if c["confidence"] > 0.4]) == 0
     )
-
     return {
         "primary": primary,
         "categories": categories,
@@ -298,16 +318,27 @@ def top_terms(text: str, limit: int = 5) -> list[str]:
     stop = {
         "the", "and", "for", "that", "this", "with", "from", "have", "your",
         "you", "are", "was", "will", "can", "not", "but", "its", "has",
-        "all", "was", "were", "been", "being", "what", "when", "where",
+        "all", "were", "been", "being", "what", "when", "where",
         "which", "who", "how", "only", "also", "just", "more", "than",
         "into", "out", "over", "under", "after", "before", "between",
+        "https", "http", "www", "here", "there", "com", "org",
     }
     words = [w.lower() for w in WORD_RE.findall(text) if len(w) > 3 and w.lower() not in stop]
     return [word for word, _ in Counter(words).most_common(limit)]
 
 
 def domain_tags(links: list[str] | tuple[str, ...]) -> list[str]:
-    return [link_domain(url).split(".")[0] for url in links if link_domain(url)]
+    noise = {"x.com", "twitter.com", "t.co", "pic.twitter.com", "mobile.twitter.com", "help.x.com"}
+    tags: list[str] = []
+    for url in links:
+        domain = link_domain(url)
+        if not domain or domain in noise:
+            continue
+        head = domain.split(".")[0]
+        if head in {"www", "x"}:
+            continue
+        tags.append(head)
+    return tags
 
 
 def link_domain(url: str) -> str:
@@ -328,9 +359,6 @@ def extract_entities(text: str, links: list[str] | tuple[str, ...] = ()) -> list
 
 
 def embed_text(text: str, dims: int = 64) -> list[float]:
-    vector = [0.0] * dims
-    for word in WORD_RE.findall(text.lower()):
-        idx = hash(word) % dims
-        vector[idx] += 1.0
-    norm = math.sqrt(sum(v * v for v in vector)) or 1.0
-    return [round(v / norm, 6) for v in vector]
+    from .embeddings import embed_text_local_hash
+
+    return embed_text_local_hash(text, dims=dims)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import math
 import os
 import re
@@ -7,12 +8,16 @@ import re
 WORD_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9_+-]{1,}")
 
 
+def _token_index(word: str, dims: int) -> int:
+    digest = hashlib.blake2s(word.encode("utf-8"), digest_size=8).digest()
+    return int.from_bytes(digest, "little") % dims
+
+
 def embed_text_local_hash(text: str, dims: int = 64) -> list[float]:
     """Deterministic hash-based embedding. Not semantic but fast and local."""
     vector = [0.0] * dims
     for word in WORD_RE.findall(text.lower()):
-        idx = hash(word) % dims
-        vector[idx] += 1.0
+        vector[_token_index(word, dims)] += 1.0
     norm = math.sqrt(sum(v * v for v in vector)) or 1.0
     return [round(v / norm, 6) for v in vector]
 

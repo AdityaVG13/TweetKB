@@ -23,13 +23,17 @@ from .server import ReviewServer
 
 
 def main(argv: list[str] | None = None) -> int:
-    argv = sys.argv[1:] if argv is None else argv
+    argv = sys.argv[1:] if argv is None else list(argv)
     if not argv:
-        try:
-            return _interactive_menu()
-        except KeyboardInterrupt:
-            print("\nInterrupted.", file=sys.stderr)
-            return 130
+        from .agent import USAGE
+
+        print(USAGE, end="" if USAGE.endswith("\n") else "\n")
+        return 0
+
+    rewritten = _rewrite_argv(argv)
+    if rewritten is None:
+        return 2
+    argv = rewritten
 
     parser = argparse.ArgumentParser(prog="tweetkb")
     parser.add_argument("--db", type=Path, default=None)
@@ -52,6 +56,11 @@ def main(argv: list[str] | None = None) -> int:
     collect.add_argument("--existing-tab", action="store_true")
     collect.add_argument("--normal-chrome", action="store_true")
     collect.add_argument("--apple-events", action="store_true")
+    collect.add_argument(
+        "--headless",
+        action="store_true",
+        help="Collect in a background Chrome using a copy of the logged-in profile. Does not restart your daily Chrome.",
+    )
     collect.add_argument("--all", action="store_true", help="Collect all bookmarks")
     collect.add_argument(
         "--stop-at-existing",
@@ -64,6 +73,12 @@ def main(argv: list[str] | None = None) -> int:
         dest="stop_at_existing",
         action="store_false",
         help="When collecting --all, rescan the whole bookmark timeline.",
+    )
+    collect.add_argument(
+        "--stop-after-known",
+        type=int,
+        default=8,
+        help="Stop after this many already-saved tweets in a row at the older end of the timeline. Ignores re-bookmarked tweets at the top.",
     )
 
     # enrich
@@ -190,20 +205,24 @@ def main(argv: list[str] | None = None) -> int:
     graph_export = graph_sub.add_parser("export", help="Export knowledge graph")
     graph_export.add_argument("--out", "-o", type=Path, default=Path("exports/graph.json"))
 
-    # compress
-    compress = sub.add_parser("compress", help="TweetZip compression")
-    compress_sub = compress.add_subparsers(dest="compress_cmd", required=True)
-    compress_sub.add_parser("benchmark", help="Benchmark compression")
-    compress_export = compress_sub.add_parser("export", help="Export DB to TweetZip")
-    compress_export.add_argument("--out", "-o", type=Path, required=True)
-    compress_export.add_argument("--engine", default="python", choices=["python", "zig"])
-    compress_decompress = compress_sub.add_parser("decompress", help="Decompress TweetZip to JSONL")
-    compress_decompress.add_argument("input", type=Path)
-    compress_decompress.add_argument("--out", "-o", type=Path, required=True)
-    compress_inspect = compress_sub.add_parser("inspect", help="Inspect TweetZip archive")
-    compress_inspect.add_argument("input", type=Path)
-    compress_verify = compress_sub.add_parser("verify", help="Verify TweetZip archive")
-    compress_verify.add_argument("input", type=Path)
+    search = sub.add_parser("search", help="Search bookmarks (offline FTS)")
+    search.add_argument("query", nargs="*", help="Search query. Also accepts from:handle and cat:slug")
+    search.add_argument("--from", dest="from_handle", default=None, help="Author handle, without @")
+    search.add_argument("--category", default=None, help="Primary category slug")
+    search.add_argument("--domain", default=None, help="Outbound link domain, e.g. github.com")
+    search.add_argument("--sort", default="rank", choices=["rank", "saved", "posted"], help="rank, saved (bookmark time), or posted (tweet time)")
+    search.add_argument("--saved-after", default=None, help="Only bookmarks captured on/after ISO date")
+    search.add_argument("--json", action="store_true", dest="as_json", help="Write {\"hits\":[...]} to stdout")
+    search.add_argument("--open", nargs="?", const=1, type=int, dest="open_count", help="Open the top N tweet URLs")
+    search.add_argument("--limit", type=int, default=50)
+
+    sub.add_parser("tui", help="Instrument-panel TUI (search, meters, mermaid graph)")
+    sub.add_parser("wizard", help="Numbered command menu")
+    cap = sub.add_parser("capabilities", help="Print the machine-readable CLI contract")
+    cap.add_argument("--json", action="store_true", dest="as_json", help="Always JSON; flag accepted for agents")
+    sub.add_parser("agent-guide", help="Print a paste-ready handbook for agents")
+    nxt = sub.add_parser("next", help="One-shot triage: counts, categories, next commands")
+    nxt.add_argument("--json", action="store_true", dest="as_json")
 
     # doctor
     sub.add_parser("doctor", help="Diagnose system health")
@@ -218,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # benchmark
     bench = sub.add_parser("benchmark", help="Run performance benchmarks")
-    bench.add_argument("--stage", default="all", choices=["all", "analyze", "export", "compress"])
+    bench.add_argument("--stage", default="all", choices=["all", "analyze", "export"])
 
     # compact
     compact = sub.add_parser("compact", help="Database maintenance")
@@ -228,6 +247,31 @@ def main(argv: list[str] | None = None) -> int:
 
     # stats
     sub.add_parser("stats", help="Show database statistics")
+    digest = sub.add_parser("digest", help="Aggregate categories, domains, and authors")
+    digest.add_argument("--json", action="store_true", dest="as_json")
+    digest.add_argument("--saved-after", default=None, help="Only bookmarks captured on/after ISO date")
+    digest.add_argument("--limit", type=int, default=20)
+    related = sub.add_parser("related", help="Bookmarks connected by url, domain, or author")
+    related.add_argument("status_id", help="Status ID of the center tweet")
+    related.add_argument("--kinds", default="url,domain,author", help="url, domain, author, cat")
+    related.add_argument("--json", action="store_true", dest="as_json")
+    related.add_argument("--limit", type=int, default=20)
+    mapped = sub.add_parser("map", help="ASCII geography for one author")
+    mapped.add_argument("--from", dest="from_handle", required=True, help="Author handle, without @")
+    mapped.add_argument("--json", action="store_true", dest="as_json")
+    mapped.add_argument("--limit", type=int, default=20)
+    atlas = sub.add_parser("atlas", help="Write a static local map of categories/domains/authors")
+    atlas.add_argument("--out", "-o", type=Path, default=Path("exports/atlas.html"))
+    atlas.add_argument("--open", action="store_true", dest="open_atlas")
+    atlas.add_argument("--limit", type=int, default=20)
+    sub.add_parser("repair-links", help="Rebuild outbound URLs from stored tweet text (no browser)")
+
+    unbookmark = sub.add_parser("unbookmark", help="Remove selected tweets from X bookmarks; keep local copies")
+    unbookmark.add_argument("--search", default="", help="List matching bookmarks to select")
+    unbookmark.add_argument("--ids", nargs="+", default=[], help="Status IDs to unbookmark on X")
+    unbookmark.add_argument("--yes", action="store_true", help="Required to actually click unbookmark on X")
+    unbookmark.add_argument("--json", action="store_true", dest="as_json")
+    unbookmark.add_argument("--limit", type=int, default=50)
 
     # serve
     serve = sub.add_parser("serve", help="Start the review UI server")
@@ -238,6 +282,22 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "release-audit":
         return _cmd_release_audit(args)
+    if args.cmd == "capabilities":
+        from .agent import capabilities_json
+
+        print(capabilities_json(), end="")
+        return 0
+    if args.cmd == "agent-guide":
+        from .agent import AGENT_GUIDE
+
+        print(AGENT_GUIDE)
+        return 0
+    if args.cmd == "wizard":
+        try:
+            return _interactive_menu()
+        except KeyboardInterrupt:
+            print("\nInterrupted.", file=sys.stderr)
+            return 130
 
     # Resolve db path
     db_path = args.db or load_config().get("database", {}).get("path", str(DEFAULT_DB))
@@ -257,30 +317,17 @@ def main(argv: list[str] | None = None) -> int:
 
 def _interactive_menu() -> int:
     print("TweetKB")
-    print("Local bookmark knowledge base")
+    print("Local bookmark knowledge base — offline, no LLM")
     while True:
         print(
             "\n".join(
                 [
                     "",
-                    "1. Initialize database",
-                    "2. Open login browser",
-                    "3. Collect bookmarks",
-                    "4. Enrich saved bookmarks",
-                    "5. Analyze bookmarks",
-                    "5a. Analyze + export to folder",
-                    "6. Export",
-                    "7. Review",
-                    "8. Stats",
-                    "9. Generate clusters",
-                    "10. Generate project ideas",
-                    "11. Export graph",
-                    "12. TweetZip compression",
-                    "13. Start review UI",
-                    "14. Doctor",
-                    "15. Release audit",
-                    "16. Run custom command",
-                    "17. Export media review bundle",
+                    "1. Collect bookmarks",
+                    "2. Search",
+                    "3. Analyze (offline)",
+                    "4. Stats",
+                    "5. Export",
                     "0. Quit",
                 ]
             )
@@ -304,13 +351,6 @@ def _interactive_menu() -> int:
 
 def _interactive_command_for_choice(choice: str, input_fn=input) -> list[str] | None:
     if choice == "1":
-        return ["init"]
-    if choice == "2":
-        command = ["login"]
-        if _prompt_bool("Use normal Chrome profile?", default=False, input_fn=input_fn):
-            command.append("--normal-chrome")
-        return command
-    if choice == "3":
         command = ["collect"]
         mode = _prompt_choice(
             "Collection mode",
@@ -329,7 +369,12 @@ def _interactive_command_for_choice(choice: str, input_fn=input) -> list[str] | 
         command.extend(["--batch-size", str(_prompt_int("Batch size", 20, input_fn))])
         command.extend(["--wait", str(_prompt_float("Wait seconds", 1.5, input_fn))])
         return command
-    if choice in {"4", "enrich"}:
+    if choice in {"2", "12", "search"}:
+        query = _prompt_text("Search query", "", input_fn)
+        command = ["search", query] if query else ["search"]
+        command.extend(["--limit", str(_prompt_int("Limit", 50, input_fn))])
+        return command
+    if choice == "enrich":
         command = ["enrich", "--apple-events"]
         _append_optional_arg(command, "--category", _prompt_text("Category", "", input_fn))
         _append_optional_arg(command, "--since", _prompt_text("Since YYYY-MM-DD", "", input_fn))
@@ -356,7 +401,7 @@ def _interactive_command_for_choice(choice: str, input_fn=input) -> list[str] | 
         if _prompt_bool("Re-enrich existing rows?", default=False, input_fn=input_fn):
             command.append("--all")
         return command
-    if choice in {"5", "analyze"}:
+    if choice in {"3", "analyze"}:
         command = ["analyze"]
         _append_interactive_analysis_args(command, input_fn)
         return command
@@ -365,7 +410,7 @@ def _interactive_command_for_choice(choice: str, input_fn=input) -> list[str] | 
         _append_interactive_analysis_args(command, input_fn, default_stage="all")
         _append_interactive_export_args(command, input_fn, default_adapter="spec")
         return command
-    if choice == "6":
+    if choice in {"5", "6"}:
         command = ["export"]
         _append_interactive_export_args(command, input_fn)
         return command
@@ -382,7 +427,7 @@ def _interactive_command_for_choice(choice: str, input_fn=input) -> list[str] | 
             command.append(_prompt_text("Status ID", "", input_fn))
             command.append(_prompt_text("Tag", "", input_fn))
         return command
-    if choice == "8":
+    if choice in {"4", "8"}:
         return ["stats"]
     if choice == "9":
         return [
@@ -397,15 +442,9 @@ def _interactive_command_for_choice(choice: str, input_fn=input) -> list[str] | 
     if choice == "11":
         return ["graph", "export", "--out", _prompt_text("Output path", "exports/graph.json", input_fn)]
     if choice == "12":
-        action = _prompt_choice("Compression action", ["benchmark", "export", "verify", "inspect", "decompress"], "benchmark", input_fn)
-        command = ["compress", action]
-        if action == "export":
-            command.extend(["--out", _prompt_text("Output .twz", "exports/bookmarks.twz", input_fn)])
-        elif action in {"verify", "inspect"}:
-            command.append(_prompt_text("Input .twz", "exports/bookmarks.twz", input_fn))
-        elif action == "decompress":
-            command.append(_prompt_text("Input .twz", "exports/bookmarks.twz", input_fn))
-            command.extend(["--out", _prompt_text("Output JSONL", "exports/bookmarks.jsonl", input_fn)])
+        query = _prompt_text("Search query", "", input_fn)
+        command = ["search", query] if query else ["search"]
+        command.extend(["--limit", str(_prompt_int("Limit", 50, input_fn))])
         return command
     if choice == "13":
         return [
@@ -525,7 +564,8 @@ def _append_optional_arg(command: list[str], flag: str, value: str) -> None:
 
 
 def _dispatch(args, db_path: Path) -> int:
-    store = DBStore(db_path)
+    create = args.cmd in {"init", "migrate"}
+    store = DBStore(db_path, create=create)
 
     if args.cmd == "init":
         store.init()
@@ -538,6 +578,8 @@ def _dispatch(args, db_path: Path) -> int:
         print(f"schema version: {store.schema_version()}")
         return 0
 
+    store.init()
+
     if args.cmd == "doctor":
         return _cmd_doctor(store, db_path)
 
@@ -545,8 +587,47 @@ def _dispatch(args, db_path: Path) -> int:
         print(json.dumps(store.stats(), indent=2))
         return 0
 
-    # Commands below need init
-    store.init()
+    if args.cmd == "digest":
+        from .digest import build_digest, format_digest
+
+        payload = build_digest(store, saved_after=getattr(args, "saved_after", None), limit=getattr(args, "limit", 20) or 20)
+        if getattr(args, "as_json", False):
+            print(json.dumps(payload, indent=2))
+        else:
+            print(format_digest(payload))
+        return 0
+
+    if args.cmd == "tui":
+        return _cmd_tui(store)
+
+    if args.cmd == "related":
+        return _cmd_related(args, store)
+
+    if args.cmd == "map":
+        return _cmd_map(args, store)
+
+    if args.cmd == "atlas":
+        return _cmd_atlas(args, store)
+
+    if args.cmd in {"search", "find"}:
+        return _cmd_search(args, store)
+
+    if args.cmd == "unbookmark":
+        return _cmd_unbookmark(args, store)
+
+    if args.cmd == "repair-links":
+        from .normalize import repair_links_from_text
+
+        result = repair_links_from_text(store)
+        print(f"bookmarks={result['bookmarks']} urls={result['urls']}")
+        return 0
+
+    if args.cmd == "next":
+        from .agent import next_payload
+
+        payload = next_payload(store.stats())
+        print(json.dumps(payload, indent=2))
+        return 0
 
     if args.cmd == "chrome-debug":
         collector = _make_collector(store, args)
@@ -560,10 +641,20 @@ def _dispatch(args, db_path: Path) -> int:
         return 0
 
     if args.cmd == "collect":
+        if not args.normal_chrome and not args.apple_events and not args.headless and sys.platform == "darwin":
+            args.apple_events = True
         collector = _make_collector(store, args)
-        collector.ensure_available()
+        if not args.apple_events and not args.headless:
+            collector.ensure_available()
         collect_limit = None if args.all else args.limit
-        mode = "apple-events" if args.apple_events else "normal-chrome" if args.normal_chrome else "browser-harness"
+        if args.headless:
+            mode = "headless"
+        elif args.apple_events:
+            mode = "apple-events"
+        elif args.normal_chrome:
+            mode = "normal-chrome"
+        else:
+            mode = "browser-harness"
         print(
             f"collect: limit={'all' if collect_limit is None else collect_limit} "
             f"batch_size={args.batch_size} wait={args.wait} mode={mode}",
@@ -571,6 +662,17 @@ def _dispatch(args, db_path: Path) -> int:
         )
         if mode == "browser-harness":
             print("browser-harness: using local managed Chrome; no AI model or cloud API is used.", flush=True)
+        if mode == "apple-events":
+            print("apple-events: using your already-running Chrome. No remote debugging, no Chrome restart.", flush=True)
+        if mode == "headless":
+            print("headless: isolated Chrome copy of your profile. Your daily Chrome is left alone.", flush=True)
+        if args.all:
+            print(
+                "collect: --all runs an in-page scroller and polls every few seconds "
+                "(not one Apple Event per tweet). Stops if X shows a rate-limit wall.",
+                file=sys.stderr,
+                flush=True,
+            )
         if args.all and args.stop_at_existing:
             print(
                 "collect: will stop once already-saved bookmark history is reached "
@@ -584,8 +686,10 @@ def _dispatch(args, db_path: Path) -> int:
             existing_tab=args.existing_tab,
             normal_chrome=args.normal_chrome,
             apple_events=args.apple_events,
+            headless=args.headless,
             all_bookmarks=args.all,
             stop_at_existing=args.stop_at_existing,
+            known_streak=getattr(args, "stop_after_known", 8),
         )
         if result.login_required:
             print("X login required. Run `uv run tweetkb login`, finish login, then rerun collect.")
@@ -595,11 +699,11 @@ def _dispatch(args, db_path: Path) -> int:
                 print("Normal Chrome is open, but Browser-Harness/CDP sees zero tabs. "
                       "Restart normal Chrome with remote debugging enabled:\n"
                       "uv run tweetkb chrome-debug\n"
-                      "Then open https://x.com/i/bookmarks and rerun:\n"
+                      "Then open https://x.com/i/history and rerun:\n"
                       "uv run tweetkb collect --normal-chrome --existing-tab")
             else:
                 suffix = " --normal-chrome" if args.normal_chrome else ""
-                print(f"Open https://x.com/i/bookmarks in Chrome, then rerun with `uv run tweetkb collect{suffix} --existing-tab`.")
+                print(f"Open https://x.com/i/history in Chrome, then rerun with `uv run tweetkb collect{suffix} --existing-tab`.")
             return 3
         print(f"saved={result.saved} changed={result.changed} unchanged={result.unchanged} "
               f"seen={result.seen} batches={result.batches}")
@@ -719,8 +823,8 @@ def _dispatch(args, db_path: Path) -> int:
             print(f"graph exported to {args.out}")
         return 0
 
-    if args.cmd == "compress":
-        return _cmd_compress(args, store)
+    if args.cmd == "search":
+        return _cmd_search(args, store)
 
     if args.cmd == "benchmark":
         return _cmd_benchmark(args, store)
@@ -940,7 +1044,7 @@ def _parse_csv_set(value: str | None) -> set[str]:
 
 
 def _print_progress(message: str) -> None:
-    print(message, flush=True)
+    print(message, file=sys.stderr, flush=True)
 
 
 def _cmd_review(args, store) -> int:
@@ -998,133 +1102,251 @@ def _cmd_review(args, store) -> int:
     return 0
 
 
-def _cmd_compress(args, store) -> int:
-    from .compress import (
-        decode_file,
-        encode_file,
-        inspect_archive,
-        verify_archive,
-    )
+def _cmd_unbookmark(args, store) -> int:
+    from .unbookmark import list_unbookmark_candidates, mark_unbookmarked, unbookmark_on_x
 
-    if args.compress_cmd == "benchmark":
-        return _benchmark_compress(store)
-
-    if args.compress_cmd == "export":
-        # Export bookmarks as JSONL first, then compress
-        records = []
-        for row in store.list_bookmarks():
-            records.append({
-                "status_id": str(row["status_id"]),
-                "status_url": row["status_url"],
-                "author_handle": row["author_handle"],
-                "author_name": row["author_name"],
-                "tweet_text": row["tweet_text"],
-                "raw_text": row["raw_text"],
-            })
-
-        import json
-        import tempfile
-        with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False, mode="w") as f:
-            for r in records:
-                f.write(json.dumps(r, ensure_ascii=False) + "\n")
-            tmp_path = Path(f.name)
-
-        encode_file(tmp_path, args.out)
-        tmp_path.unlink()
-
-        orig_size = sum(len(json.dumps(r)) for r in records)
-        compressed_size = args.out.stat().st_size
-        ratio = orig_size / compressed_size if compressed_size > 0 else 0
-        print(f"compressed={len(records)} records out={args.out} ratio={ratio:.2f}x")
-        return 0
-
-    if args.compress_cmd == "decompress":
-        decode_file(args.input, args.out)
-        print(f"decompressed {args.input} -> {args.out}")
-        return 0
-
-    if args.compress_cmd == "inspect":
-        data = args.input.read_bytes()
-        info = inspect_archive(data)
-        print(json.dumps(info, indent=2))
-        return 0
-
-    if args.compress_cmd == "verify":
-        ok = verify_archive(args.input)
-        if ok:
-            print(f"OK: {args.input}")
+    query = (getattr(args, "search", "") or "").strip()
+    ids = list(getattr(args, "ids", None) or [])
+    if query:
+        candidates = list_unbookmark_candidates(store, query, limit=getattr(args, "limit", 50) or 50)
+        if getattr(args, "as_json", False):
+            print(
+                json.dumps(
+                    {
+                        "candidates": [
+                            {
+                                "status_id": item.status_id,
+                                "status_url": item.status_url,
+                                "author_handle": item.author_handle,
+                                "snippet": item.snippet,
+                            }
+                            for item in candidates
+                        ]
+                    }
+                )
+            )
         else:
-            print(f"INVALID: {args.input}")
-        return 0 if ok else 1
-
+            for item in candidates:
+                handle = f"@{item.author_handle}" if item.author_handle else "-"
+                print(f"{item.status_id}  {handle}")
+                print(item.snippet)
+                if item.status_url:
+                    print(item.status_url)
+                print()
+            if candidates:
+                joined = " ".join(item.status_id for item in candidates)
+                print(f"unbookmark with: tweetkb unbookmark --ids {joined} --yes", file=sys.stderr)
+        return 0
+    if not ids:
+        print("search or --ids is required\nTry: tweetkb unbookmark --search rust", file=sys.stderr)
+        return 2
+    if not getattr(args, "yes", False):
+        joined = " ".join(ids)
+        print("Refusing to remove X bookmarks without --yes.", file=sys.stderr)
+        print(f"Did you mean: tweetkb unbookmark --ids {joined} --yes", file=sys.stderr)
+        print("Local copies stay in TweetKB.", file=sys.stderr)
+        return 2
+    for status_id in ids:
+        result = unbookmark_on_x(status_id, browser_app=getattr(args, "browser_app", None) or "Google Chrome")
+        if not result.get("ok"):
+            print(f"could not unbookmark {status_id}: {result.get('reason', 'unknown')}", file=sys.stderr)
+            print("Local row was not marked. Open https://x.com/i/history and retry.", file=sys.stderr)
+            return 1
+        mark_unbookmarked(store, status_id)
+        print(f"unbookmarked {status_id}")
     return 0
 
 
-def _benchmark_compress(store) -> int:
-    import gzip
-    import json
-    import tempfile
-    import time
+def _cmd_tui(store) -> int:
+    try:
+        from .tui_app import run_tui
+    except ImportError:
+        print("TUI needs textual. Try: uv sync --extra tui", file=sys.stderr)
+        return 2
+    return run_tui(store)
 
-    from .compress import decode_records, encode_records
 
-    # Collect records
-    records = []
-    for row in store.list_bookmarks(limit=1000):
-        records.append({
-            "status_id": str(row["status_id"]),
-            "status_url": row["status_url"],
-            "author_handle": row["author_handle"],
-            "author_name": row["author_name"],
-            "tweet_text": row["tweet_text"],
-        })
+def _cmd_related(args, store) -> int:
+    from .relations import format_related, parse_kinds, related_bookmarks
 
-    if not records:
-        print("No bookmarks to benchmark")
+    try:
+        kinds = parse_kinds(getattr(args, "kinds", None))
+        hits = related_bookmarks(
+            store,
+            args.status_id,
+            kinds=kinds,
+            limit=getattr(args, "limit", 20) or 20,
+        )
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    center = store.conn.execute(
+        """
+        SELECT b.status_id, b.author_handle,
+               IFNULL((SELECT c.category_slug FROM classifications c WHERE c.bookmark_id = b.id AND c.is_primary = 1 LIMIT 1), '') AS category
+        FROM bookmarks b WHERE b.status_id = ?
+        """,
+        (args.status_id,),
+    ).fetchone()
+    if getattr(args, "as_json", False):
+        print(
+            json.dumps(
+                {
+                    "center": args.status_id,
+                    "author_handle": (center["author_handle"] if center else "") or "",
+                    "category": (center["category"] if center else "") or "",
+                    "edges": [
+                        {
+                            "to": hit.status_id,
+                            "kind": hit.kind,
+                            "via": hit.via,
+                            "author_handle": hit.author_handle,
+                            "status_url": hit.status_url,
+                            "tweet_text": hit.tweet_text,
+                            "category": hit.category,
+                        }
+                        for hit in hits
+                    ],
+                }
+            )
+        )
+        return 0
+    print(format_related(dict(center) if center else {"status_id": args.status_id}, hits))
+    return 0
+
+
+def _cmd_map(args, store) -> int:
+    from .relations import author_map, format_author_map
+
+    try:
+        payload = author_map(store, getattr(args, "from_handle", "") or "", limit=getattr(args, "limit", 20) or 20)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    if getattr(args, "as_json", False):
+        print(json.dumps(payload, indent=2))
+        return 0
+    print(format_author_map(payload))
+    return 0
+
+
+def _cmd_atlas(args, store) -> int:
+    from .relations import write_atlas
+
+    out = Path(getattr(args, "out", None) or "exports/atlas.html")
+    path = write_atlas(store, out, limit=getattr(args, "limit", 20) or 20)
+    print(str(path))
+    if getattr(args, "open_atlas", False):
+        return _open_urls([str(path.resolve())])
+    return 0
+
+
+def _cmd_search(args, store) -> int:
+    from .normalize import display_tweet_text
+    from .search import search_bookmarks
+
+    query = " ".join(args.query) if isinstance(args.query, list) else (args.query or "")
+    try:
+        hits = search_bookmarks(
+            store,
+            query,
+            limit=getattr(args, "limit", 50) or 50,
+            from_handle=getattr(args, "from_handle", None),
+            category=getattr(args, "category", None),
+            domain=getattr(args, "domain", None),
+            sort=getattr(args, "sort", "rank") or "rank",
+            saved_after=getattr(args, "saved_after", None),
+        )
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    as_json = bool(getattr(args, "as_json", False))
+    if as_json:
+        print(
+            json.dumps(
+                {
+                    "hits": [
+                        {
+                            "status_id": hit.status_id,
+                            "status_url": hit.status_url,
+                            "author_handle": hit.author_handle,
+                            "tweet_text": hit.tweet_text,
+                            "snippet": hit.snippet,
+                            "rank": hit.rank,
+                            "category": hit.category,
+                            "outbound_links": list(hit.outbound_links),
+                            "captured_at": hit.captured_at,
+                            "created_at": hit.created_at,
+                        }
+                        for hit in hits
+                    ]
+                }
+            )
+        )
+    elif not hits:
+        print("no matches", file=sys.stderr)
+    else:
+        for hit in hits:
+            handle = f"@{hit.author_handle}" if hit.author_handle else "-"
+            category = hit.category or "-"
+            text = display_tweet_text(hit.tweet_text or hit.snippet or "")
+            print(f"{hit.status_id}  {handle}  {category}")
+            print(text[:240])
+            if hit.status_url:
+                print(hit.status_url)
+            for url in hit.outbound_links:
+                print(url)
+            print()
+    open_count = getattr(args, "open_count", None)
+    if open_count:
+        return _open_urls([hit.status_url for hit in hits if hit.status_url][: int(open_count)])
+    return 0
+
+
+def _open_urls(urls: list[str]) -> int:
+    import shutil
+    import subprocess
+
+    if not urls:
+        print("no urls to open", file=sys.stderr)
+        return 0
+    opener = shutil.which("open") or shutil.which("xdg-open")
+    if not opener:
+        print("no system opener found; install macOS open or xdg-open", file=sys.stderr)
+        print("Try: tweetkb search QUERY --json", file=sys.stderr)
         return 1
-
-    # JSONL baseline
-    jsonl_bytes = sum(len(json.dumps(r)) for r in records)
-    jsonl_file = tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False)
-    with open(jsonl_file.name, "w") as f:
-        for r in records:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
-    jsonl_file_size = Path(jsonl_file.name).stat().st_size
-
-    # Gzip baseline
-    with tempfile.NamedTemporaryFile(suffix=".gz", delete=False) as gf:
-        gz_path = gf.name
-    with gzip.open(gz_path, "wb") as f:
-        for r in records:
-            f.write((json.dumps(r, ensure_ascii=False) + "\n").encode())
-    gzip_size = Path(gz_path).stat().st_size
-
-    # TweetZip
-    start = time.perf_counter()
-    twz_data = encode_records(records)
-    encode_ms = (time.perf_counter() - start) * 1000
-
-    start = time.perf_counter()
-    decoded = decode_records(twz_data)
-    decode_ms = (time.perf_counter() - start) * 1000
-
-    twz_size = len(twz_data)
-    ratio = jsonl_bytes / twz_size if twz_size > 0 else 0
-
-    print(f"=== Compression Benchmark ({len(records)} records) ===")
-    print(f"JSONL bytes:     {jsonl_bytes:,}")
-    print(f"JSONL file:      {jsonl_file_size:,}")
-    print(f"Gzip JSONL:      {gzip_size:,} ({gzip_size/jsonl_file_size:.2f}x)")
-    print(f"TweetZip:        {twz_size:,} ({ratio:.2f}x vs JSONL)")
-    print(f"Encode:          {encode_ms:.1f}ms ({len(records)/(encode_ms/1000):.0f} records/s)")
-    print(f"Decode:          {decode_ms:.1f}ms ({len(records)/(decode_ms/1000):.0f} records/s)")
-    print(f"Roundtrip OK:    {len(decoded) == len(records)}")
-
-    # Cleanup
-    Path(jsonl_file.name).unlink()
-    Path(gz_path).unlink()
-
+    for url in urls:
+        subprocess.run([opener, url], check=False)
+    print(f"opened={len(urls)}", file=sys.stderr)
     return 0
+
+
+def _rewrite_argv(argv: list[str]) -> list[str] | None:
+    from .agent import ALIASES, KNOWN_COMMANDS, closest_command
+
+    flags = []
+    rest = list(argv)
+    while rest and rest[0].startswith("-"):
+        flag = rest.pop(0)
+        flags.append(flag)
+        if flag in {"--db", "--browser-app", "--browser-profile", "--debug-port"} and rest:
+            flags.append(rest.pop(0))
+    if not rest:
+        return argv
+    head = rest[0]
+    if head in ALIASES:
+        return flags + [ALIASES[head], *rest[1:]]
+    if head in KNOWN_COMMANDS or head.startswith("-"):
+        return argv
+    suggestion = closest_command(head)
+    print(f"unknown command {head!r}", file=sys.stderr)
+    if suggestion:
+        extra = " ".join(rest[1:])
+        print(f"Did you mean: tweetkb {suggestion}{(' ' + extra) if extra else ''}", file=sys.stderr)
+    else:
+        print("Try: tweetkb search QUERY --json", file=sys.stderr)
+        print("     tweetkb capabilities --json", file=sys.stderr)
+    return None
 
 
 def _cmd_benchmark(args, store) -> int:
@@ -1148,19 +1370,6 @@ def _cmd_benchmark(args, store) -> int:
             elapsed = time.perf_counter() - start
             bookmarks = store.conn.execute("SELECT count(*) FROM bookmarks WHERE is_deleted = 0").fetchone()[0]
             print(f"export (obsidian): {elapsed:.2f}s for {bookmarks} bookmarks ({bookmarks/elapsed:.0f}/s)")
-
-    if args.stage in ("all", "compress"):
-        from .compress import decode_records, encode_records
-        records = [{"status_id": str(r["status_id"]), "tweet_text": r["tweet_text"] or ""}
-                   for r in store.list_bookmarks()]
-        if records:
-            start = time.perf_counter()
-            data = encode_records(records)
-            encode_ms = (time.perf_counter() - start) * 1000
-            start = time.perf_counter()
-            decode_records(data)
-            decode_ms = (time.perf_counter() - start) * 1000
-            print(f"compress: encode={encode_ms:.0f}ms decode={decode_ms:.0f}ms ({len(records)} records)")
 
     return 0
 

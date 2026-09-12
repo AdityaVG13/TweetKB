@@ -1,6 +1,6 @@
 [project]
 name = "tweetkb"
-version = "0.5.0"
+version = "0.6.0"
 description = "Local X/Twitter bookmark collector, classifier, knowledgebase, and Obsidian exporter."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -8,7 +8,10 @@ license = "MIT"
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=9.0", "ruff>=0.14"]
+dev = ["pytest>=9.0", "ruff>=0.14", "textual>=8.2.8"]
+tui = [
+    "textual>=8.2.8",
+]
 
 [project.scripts]
 tweetkb = "tweetkb.cli:main"
@@ -31,3 +34,8 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I"]
 ignore = ["E501", "E731"]
+
+[dependency-groups]
+dev = [
+    "textual>=8.2.8",
+]

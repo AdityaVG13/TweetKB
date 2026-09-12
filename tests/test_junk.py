@@ -5,7 +5,7 @@ from tweetkb.junk import list_junk_candidates
 
 
 def test_junk_candidates_flag_x_ads_link(tmp_path: Path):
-    store = Store(tmp_path / "db.sqlite3")
+    store = Store(tmp_path / "db.sqlite3", create=True)
     store.init()
     bookmark_id = store.upsert_bookmark(
         {

@@ -5,6 +5,7 @@ import os
 import shutil
 import socket
 import subprocess
+import sys
 import textwrap
 import threading
 import time
@@ -17,7 +18,7 @@ from .checkpoint import Checkpoint
 from .db import Store
 from .util import extract_status_id
 
-BOOKMARKS_URL = "https://x.com/i/bookmarks"
+BOOKMARKS_URL = "https://x.com/i/history"
 DEFAULT_BROWSER_APP = os.environ.get("TWEETKB_BROWSER_APP", "Google Chrome")
 DEFAULT_BROWSER_PROFILE = Path(
     os.environ.get("TWEETKB_BROWSER_PROFILE", str(Path.home() / "Library/Application Support/Google/Chrome"))
@@ -99,11 +100,33 @@ class BrowserHarnessCollector:
         existing_tab: bool = False,
         normal_chrome: bool = False,
         apple_events: bool = False,
+        headless: bool = False,
         all_bookmarks: bool = False,
         stop_at_existing: bool = True,
+        known_streak: int = 8,
     ) -> CollectResult:
-        self.ensure_available()
+        if not apple_events and not headless:
+            self.ensure_available()
         known_status_ids = self._known_status_ids() if stop_at_existing else set()
+        if headless:
+            from .headless import collect_headless
+
+            payload = collect_headless(
+                self._extractor_js(),
+                profile_root=self.browser_profile,
+                clone_dir=Path("data/chrome-profile"),
+                limit=limit,
+                batch_size=batch_size,
+                wait_seconds=wait_seconds,
+                all_bookmarks=all_bookmarks,
+                known_status_ids=known_status_ids,
+                stop_at_existing=stop_at_existing,
+                known_streak=known_streak,
+            )
+            if payload.get("login_required"):
+                return CollectResult(saved=0, seen=0, batches=0, login_required=True)
+            payload = self._apply_limit(payload, limit, all_bookmarks)
+            return self._save_payload(payload)
         if apple_events:
             payload = self._collect_with_apple_events(
                 limit=limit,
@@ -112,7 +135,10 @@ class BrowserHarnessCollector:
                 all_bookmarks=all_bookmarks,
                 known_status_ids=known_status_ids,
                 stop_at_existing=stop_at_existing,
+                known_streak=known_streak,
             )
+            if payload.get("login_required"):
+                return CollectResult(saved=0, seen=0, batches=0, login_required=True)
             payload = self._apply_limit(payload, limit, all_bookmarks)
             return self._save_payload(payload)
         if not normal_chrome:
@@ -287,74 +313,197 @@ class BrowserHarnessCollector:
         all_bookmarks: bool = False,
         known_status_ids: set[str] | None = None,
         stop_at_existing: bool = True,
+        known_streak: int = 8,
     ) -> dict[str, Any]:
-        extractor_js = self._extractor_js()
-        max_batches = 5000 if all_bookmarks else 200
-        limit_check = "false" if all_bookmarks else f"currentCount >= {int(limit or 100)}"
+        from .chrome_session import ChromeSessionError, ensure_bookmarks_tab, eval_js
+
+        try:
+            tab = ensure_bookmarks_tab(self.browser_app)
+        except ChromeSessionError as exc:
+            raise RuntimeError(str(exc)) from exc
         known_json = json.dumps({status_id: True for status_id in sorted(known_status_ids or set())})
         reset_js = (
-            f"window.__tweetkbSeen = {{}}; window.__tweetkbOrder = []; "
+            "if (window.__tweetkbRunner) window.__tweetkbRunner.running = false; "
+            "window.__tweetkbSeen = {}; window.__tweetkbOrder = []; window.__tweetkbCursor = 0; "
             f"window.__tweetkbKnown = {known_json}; window.scrollTo(0, 0)"
         )
-        stop_existing_check = (
-            "newCount = previousNewCount and currentCount > 0" if all_bookmarks and stop_at_existing else "false"
+        try:
+            page_url = eval_js(self.browser_app, tab, "location.href")
+        except ChromeSessionError as exc:
+            raise RuntimeError(str(exc)) from exc
+        if "flow/login" in page_url:
+            return {"login_required": True, "url": page_url, "items": [], "batches": 0}
+        eval_js(self.browser_app, tab, reset_js)
+        target = None if all_bookmarks else int(limit or 100)
+        known = known_status_ids or set()
+        if all_bookmarks:
+            runner_payload = self._collect_apple_events_runner(
+                tab,
+                known=known,
+                known_streak=known_streak,
+                stop_at_existing=stop_at_existing,
+                target=target,
+            )
+            if runner_payload is not None:
+                return runner_payload
+        return self._collect_apple_events_ticked(
+            tab,
+            extractor_js=self._extractor_js(),
+            known=known,
+            known_streak=known_streak,
+            stop_at_existing=stop_at_existing,
+            target=target,
+            wait_seconds=wait_seconds,
+            all_bookmarks=all_bookmarks,
         )
-        script = f"""
-        on run
-          set collected to "{{}}"
-          set batches to 0
-          set stagnant to 0
-          set existingStagnant to 0
-          set previousCount to 0
-          set previousNewCount to 0
-          set metrics to "{{}}"
-          tell application {json.dumps(self.browser_app)}
-            if not (exists front window) then error "No Chrome window is open"
-            tell active tab of front window
-              repeat while batches < {max_batches}
-                set pageUrl to execute javascript "location.href"
-                if pageUrl contains "flow/login" then return "TWEETKB_JSON=" & "{{\\"login_required\\":true,\\"url\\":\\"" & pageUrl & "\\"}}"
-                if batches = 0 then execute javascript {json.dumps(reset_js)}
-                set rawItems to execute javascript {json.dumps(extractor_js)}
-                set collected to rawItems
-                set metrics to execute javascript "JSON.stringify({{scroll_y: Math.round(window.scrollY), page_height: document.documentElement.scrollHeight, visible_articles: document.querySelectorAll('article').length}})"
-                set batches to batches + 1
-                set currentCount to execute javascript "Object.keys(window.__tweetkbSeen || {{}}).length"
-                set newCount to execute javascript "Object.keys(window.__tweetkbSeen || {{}}).filter(id => !(window.__tweetkbKnown || {{}})[id]).length"
-                if {limit_check} then exit repeat
-                if currentCount = previousCount then
-                  set stagnant to stagnant + 1
-                else
-                  set stagnant to 0
-                end if
-                if {stop_existing_check} then
-                  set existingStagnant to existingStagnant + 1
-                else
-                  set existingStagnant to 0
-                end if
-                if stagnant >= 10 then exit repeat
-                if existingStagnant >= 5 then exit repeat
-                set previousCount to currentCount
-                set previousNewCount to newCount
-                execute javascript "window.scrollBy(0, " & "{int(batch_size) * 220}" & ")"
-                delay {float(wait_seconds)}
-              end repeat
-            end tell
-          end tell
-          return "TWEETKB_JSON=" & "{{\\"items\\":" & collected & ",\\"batches\\":" & batches & ",\\"metrics\\":" & metrics & "}}"
-        end run
-        """
-        proc = subprocess.run(["osascript"], input=script, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
-        if proc.returncode != 0:
-            stderr = proc.stderr.strip()
-            if "Executing JavaScript through AppleScript is turned off" in stderr:
-                raise RuntimeError(
-                    "Chrome blocks Apple Events JavaScript. In Chrome, enable: "
-                    "View > Developer > Allow JavaScript from Apple Events. Then rerun:\n"
-                    "uv run tweetkb collect --apple-events --limit 300 --batch-size 20"
+
+    def _collect_apple_events_runner(
+        self,
+        tab,
+        *,
+        known: set[str],
+        known_streak: int,
+        stop_at_existing: bool,
+        target: int | None,
+    ) -> dict[str, Any] | None:
+        from .chrome_session import ChromeSessionError, eval_js
+        from .collect_runner import RUNNER_JS, SNAPSHOT_JS, STOP_JS, parse_snapshot, poll_seconds
+        from .collect_stop import decide_scroll_stop, merge_batch
+
+        try:
+            started = eval_js(self.browser_app, tab, RUNNER_JS)
+        except ChromeSessionError:
+            return None
+        if started not in {"started", "already"}:
+            return None
+        print(
+            "collect: in-page scroller started. Python only polls every few seconds.",
+            file=sys.stderr,
+            flush=True,
+        )
+        order: list[str] = []
+        collected: dict[str, dict[str, Any]] = {}
+        empty_polls = 0
+        added_last = 0
+        batches = 0
+        try:
+            while batches < 400:
+                time.sleep(poll_seconds(added=added_last, empty_polls=empty_polls))
+                raw = eval_js(self.browser_app, tab, SNAPSHOT_JS)
+                snap = parse_snapshot(raw)
+                if snap["rate_limited"]:
+                    print(
+                        "collect: X showed a rate-limit wall. Stopping. Local saves so far are kept. Wait and rerun collect.",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    break
+                if not snap["ok"]:
+                    if order:
+                        break
+                    return None
+                order, collected, added = merge_batch(order, collected, snap["items"])
+                added_last = added
+                batches += 1
+                if added == 0:
+                    empty_polls += 1
+                else:
+                    empty_polls = 0
+                    self._save_payload(
+                        {"items": [collected[status_id] for status_id in order[-added:]], "batches": batches}
+                    )
+                new_count = sum(1 for status_id in order if status_id not in known)
+                decision = decide_scroll_stop(
+                    order,
+                    known,
+                    empty_scrolls=empty_polls,
+                    empty_scroll_limit=4,
+                    known_streak=known_streak,
+                    limit=target,
+                    stop_at_existing=stop_at_existing,
                 )
-            raise RuntimeError(stderr or proc.stdout.strip())
-        return self._parse_payload(proc.stdout)
+                print(
+                    f"tweetkb progress: seen={len(order)} new={new_count} added={added} polls={batches} "
+                    f"page_total={snap.get('total', 0)} stop={decision.reason}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                if decision.stop:
+                    break
+        finally:
+            try:
+                eval_js(self.browser_app, tab, STOP_JS)
+            except ChromeSessionError:
+                pass
+        return {"items": [collected[status_id] for status_id in order], "batches": batches}
+
+    def _collect_apple_events_ticked(
+        self,
+        tab,
+        *,
+        extractor_js: str,
+        known: set[str],
+        known_streak: int,
+        stop_at_existing: bool,
+        target: int | None,
+        wait_seconds: float,
+        all_bookmarks: bool,
+    ) -> dict[str, Any]:
+        from .chrome_session import eval_js
+        from .collect_pace import sleep_seconds
+        from .collect_stop import decide_scroll_stop, merge_batch
+
+        max_batches = 5000 if all_bookmarks else 200
+        stagnant = 0
+        batches = 0
+        order: list[str] = []
+        collected: dict[str, dict[str, Any]] = {}
+        metrics: dict[str, Any] = {}
+        while batches < max_batches:
+            raw = eval_js(self.browser_app, tab, extractor_js)
+            try:
+                batch_items = json.loads(raw or "[]")
+            except json.JSONDecodeError:
+                batch_items = []
+            if not isinstance(batch_items, list):
+                batch_items = []
+            batches += 1
+            order, collected, added = merge_batch(order, collected, batch_items)
+            if added == 0:
+                stagnant += 1
+            else:
+                stagnant = 0
+                self._save_payload({"items": [collected[status_id] for status_id in order[-added:]], "batches": batches})
+            decision = decide_scroll_stop(
+                order,
+                known,
+                empty_scrolls=stagnant,
+                known_streak=known_streak,
+                limit=target,
+                stop_at_existing=stop_at_existing,
+            )
+            print(
+                f"tweetkb progress: seen={len(order)} new={sum(1 for status_id in order if status_id not in known)} "
+                f"added={added} batches={batches} stop={decision.reason}",
+                file=sys.stderr,
+                flush=True,
+            )
+            if decision.stop:
+                break
+            eval_js(
+                self.browser_app,
+                tab,
+                """(() => {
+  const articles = document.querySelectorAll('article');
+  const last = articles[articles.length - 1];
+  if (last) last.scrollIntoView({block: 'end', inline: 'nearest'});
+  const col = document.querySelector('[data-testid="primaryColumn"]') || document.scrollingElement;
+  if (col && col !== last) col.scrollBy(0, 1400);
+  return articles.length;
+})()""",
+            )
+            time.sleep(sleep_seconds(wait_seconds, batches, all_bookmarks=all_bookmarks))
+        return {"items": [collected[status_id] for status_id in order], "batches": batches, **metrics}
 
     def _parse_payload(self, stdout: str) -> dict[str, Any]:
         for line in reversed(stdout.splitlines()):
@@ -413,7 +562,7 @@ class BrowserHarnessCollector:
     const userText = textOf(userName);
     const handleMatch = userText.match(/@([A-Za-z0-9_]+)/);
     const tweetTextNodes = Array.from(article.querySelectorAll('[data-testid="tweetText"]'));
-    const tweetText = tweetTextNodes.map(textOf).filter(Boolean).join('\n\n') || textOf(article);
+    const tweetText = tweetTextNodes.map(textOf).filter(Boolean).join('\n\n');
     const time = article.querySelector('time');
     const item = {
       status_url: statusUrl,
@@ -458,7 +607,7 @@ class BrowserHarnessCollector:
                 pages = [t for t in targets if t.get("type") == "page"]
                 bookmarks = [
                     t for t in pages
-                    if ("x.com/i/bookmarks" in t.get("url", "") or "twitter.com/i/bookmarks" in t.get("url", ""))
+                    if any(path in t.get("url", "") for path in ("/i/history", "/i/bookmarks"))
                 ]
                 if bookmarks:
                     return cdp("Target.attachToTarget", targetId=bookmarks[0]["targetId"], flatten=True)["sessionId"]
@@ -476,7 +625,7 @@ class BrowserHarnessCollector:
                     print("TWEETKB_JSON=" + json.dumps({{
                         "needs_bookmarks_tab": True,
                         "debug_targets_empty": total_targets == 0,
-                        "message": "CDP sees no Chrome targets" if total_targets == 0 else "CDP cannot see an x.com/i/bookmarks tab",
+                        "message": "CDP sees no Chrome targets" if total_targets == 0 else "CDP cannot see an x.com/i/history tab",
                         "pages": attached.get("pages", []) if isinstance(attached, dict) else [],
                     }}))
                     raise SystemExit(0)
@@ -616,7 +765,7 @@ def find_normal_chrome_cdp_ws(
         raise RuntimeError(
             "Normal Chrome is not running with remote debugging. Quit Chrome, then start it with:\n"
             f"open -na '{browser_app}' --args --remote-debugging-port={debug_port} --remote-allow-origins='*'\n"
-            "Then open https://x.com/i/bookmarks and rerun collection."
+            "Then open https://x.com/i/history and rerun collection."
         )
     port = int(lines[0])
     if not is_port_open("127.0.0.1", port):

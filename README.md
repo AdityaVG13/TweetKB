@@ -37,19 +37,30 @@ Open a new terminal, then run:
 
 ```bash
 tweetkb init
-tweetkb
+tweetkb collect --all
+tweetkb search rust --json
 ```
 
 That gives you the direct `tweetkb` command. No `uv run` needed after install.
 
-Use a source checkout when you want to develop, run tests, or inspect the code:
+Use a source checkout when you want to develop. Install the command from that folder so you still type `tweetkb`, not `uv run tweetkb`:
 
 ```bash
 git clone https://github.com/AdityaVG13/TweetKB.git TweetKB
 cd TweetKB
+uv tool install -e ".[tui]" --force
+uv tool update-shell
+tweetkb init
+tweetkb collect --all
+tweetkb search rust --json
+```
+
+Tests stay in the checkout:
+
+```bash
 uv sync --extra dev
-uv run tweetkb init
-uv run tweetkb
+uv run pytest
+uv run ruff check .
 ```
 
 ## What You Can Build
@@ -57,6 +68,8 @@ uv run tweetkb
 | Need | Command path |
 | --- | --- |
 | Collect bookmarks from a logged-in browser | `tweetkb collect` |
+| Search the local archive | `tweetkb search "query"` |
+| Instrument TUI | `tweetkb tui` |
 | Classify and analyze selected slices | `tweetkb analyze --stage all` |
 | Capture full posts, links, and thread context | `tweetkb enrich --apple-events` |
 | Export an interactive analysis bundle | `tweetkb analyze-export --adapter spec --vault ./exports/spec` |
@@ -115,118 +128,77 @@ cp tweetkb.example.toml tweetkb.toml
 
 `tweetkb.toml` is ignored because it may contain private filesystem paths.
 
-## Start with the menu
-
-Run:
+## Start with the TUI
 
 ```bash
-tweetkb
+tweetkb tui
 ```
 
-From a source checkout, use `uv run tweetkb`.
-
-![TweetKB terminal menu](docs/assets/tweetkb-menu.png)
-
-The menu can initialize the database, open login Chrome, collect bookmarks,
-analyze selected slices, analyze and export to a chosen folder, enrich posts,
-export notes, review bookmarks, show stats, generate clusters, mine project
-ideas, export graphs, run TweetZip, start the review UI, run doctor checks, and
-run the release audit.
-
-Use `5a. Analyze + export to folder` when you want TweetKB to run analysis and
-write the resulting analysis documents to a specific output folder in one step.
-
-Every menu action prints the exact `tweetkb ...` command before running it.
-Long-running commands also print progress lines such as selected counts,
-bookmark IDs, enrich URLs, and final totals.
+Search, pick a hit, see the tweet and its related bookmarks (same URL, domain, or author). `g` switches related view (list / mermaid / map). The numbered wizard is `tweetkb wizard`. Bare `tweetkb` prints usage and exits — it does not open a menu.
 
 ## Common workflow
 
 Open the login browser:
 
 ```bash
-uv run tweetkb login
+tweetkb login
 ```
 
 Collect a small batch:
 
 ```bash
-uv run tweetkb collect --limit 100 --batch-size 20
+tweetkb collect --limit 100 --batch-size 20
 ```
 
 Classify first:
 
 ```bash
-uv run tweetkb analyze --stage classify
+tweetkb analyze --stage classify
 ```
 
 Run heavier analysis only where it matters:
 
 ```bash
-uv run tweetkb analyze --stage entities --include-category ai-agents,coding
-uv run tweetkb analyze --stage embed --exclude-category misc --needs-review
+tweetkb analyze --stage entities --include-category ai-agents,coding
+tweetkb analyze --stage embed --exclude-category misc --needs-review
 ```
 
 Export to Obsidian:
 
 ```bash
-uv run tweetkb export --adapter obsidian --vault ./obsidian-vault
+tweetkb export --adapter obsidian --vault ./obsidian-vault
 ```
 
 Open the local review UI:
 
 ```bash
-uv run tweetkb serve
+tweetkb serve
 ```
 
 Then open `http://127.0.0.1:8765`.
 
 ## Collection modes
 
-Install Browser-Harness before collecting bookmarks:
+On macOS, `tweetkb collect` talks to your already-running Chrome through Apple
+Events. It does not restart Chrome and does not enable remote debugging.
 
 ```bash
-git clone https://github.com/browser-use/browser-harness ~/Developer/browser-harness
-cd ~/Developer/browser-harness
-uv tool install -e .
-browser-harness --setup
-browser-harness --doctor
+tweetkb collect --all
+tweetkb collect --headless --limit 200
 ```
 
-TweetKB can collect through Browser-Harness managed Chrome, normal Chrome CDP,
-or macOS Apple Events. These collectors are deterministic local browser
-automation, not AI browser agents, so collection does not need an LLM model or
-Browser Use cloud API.
+`--headless` copies session files from your Chrome profile into `data/chrome-profile/`
+and launches a separate background Chrome. Your daily browser is left alone.
 
-See [Browser-Harness setup](docs/BROWSER_HARNESS.md) for managed Chrome,
-normal Chrome, and troubleshooting notes.
+Incremental `--all` skips a prefix of already-saved tweets (re-bookmarks at the
+top) and stops only after `--stop-after-known` already-saved tweets in a row at
+the older end of the timeline. Tweet dates are ignored: bookmarking a 10-year-old
+post today still puts it at the top. `--no-stop-at-existing` does a full rescan.
 
-Interactive collection defaults to Apple Events against your already-open normal
-Chrome bookmarks tab. Open `https://x.com/i/bookmarks`, then choose
-`3. Collect bookmarks` and press Enter for `apple-events`.
+If Chrome is on `/i/bookmarks`, that old alias still works. The live page is `/i/history`.
 
-When you collect `--all`, TweetKB stops after it reaches already-saved bookmark
-history. Use `--no-stop-at-existing` only when you intentionally want a full
-timeline rescan.
-
-Default Browser-Harness collection:
-
-```bash
-uv run tweetkb collect --limit 100 --batch-size 20
-```
-
-Normal Chrome profile:
-
-```bash
-uv run tweetkb chrome-debug
-uv run tweetkb collect --normal-chrome --existing-tab --limit 100
-```
-
-macOS Apple Events fallback:
-
-```bash
-uv run tweetkb collect --apple-events --all --batch-size 10 --wait 1
-```
+Browser-Harness and `--normal-chrome` remain available. `--normal-chrome` may
+restart Chrome with remote debugging; that is no longer the default.
 
 For Apple Events mode, Chrome must allow JavaScript from Apple Events.
 
@@ -236,12 +208,12 @@ Category filters use existing classifications. Run classification once, then
 target later stages:
 
 ```bash
-uv run tweetkb analyze --stage classify
-uv run tweetkb analyze --stage all --limit 100
-uv run tweetkb analyze --stage entities --include-category ai-agents,coding
-uv run tweetkb analyze --stage embed --exclude-category misc --needs-review
-uv run tweetkb analyze --stage all --reviewed
-uv run tweetkb analyze-export --stage all --adapter spec --vault ./exports/spec
+tweetkb analyze --stage classify
+tweetkb analyze --stage all --limit 100
+tweetkb analyze --stage entities --include-category ai-agents,coding
+tweetkb analyze --stage embed --exclude-category misc --needs-review
+tweetkb analyze --stage all --reviewed
+tweetkb analyze-export --stage all --adapter spec --vault ./exports/spec
 ```
 
 ![TweetKB progress output](docs/assets/tweetkb-progress.png)
@@ -256,13 +228,13 @@ descriptions and OCR text are stored with the bookmark and included in later
 classification, entity extraction, embeddings, and exports.
 
 ```bash
-uv run tweetkb enrich --apple-events --limit 100 --wait 4
-uv run tweetkb enrich --apple-events --include-conversation always --max-conversation-items 20
-uv run tweetkb enrich --apple-events --include-links --max-links 3
-OPENAI_API_KEY=... uv run tweetkb enrich --apple-events --include-media --vision-provider openai --vision-detail high
-uv run tweetkb enrich --apple-events --include-media --vision-provider ollama --vision-model llava
-uv run tweetkb media-export --out ./exports/media-review
-uv run tweetkb analyze --stage all
+tweetkb enrich --apple-events --limit 100 --wait 4
+tweetkb enrich --apple-events --include-conversation always --max-conversation-items 20
+tweetkb enrich --apple-events --include-links --max-links 3
+OPENAI_API_KEY=... tweetkb enrich --apple-events --include-media --vision-provider openai --vision-detail high
+tweetkb enrich --apple-events --include-media --vision-provider ollama --vision-model llava
+tweetkb media-export --out ./exports/media-review
+tweetkb analyze --stage all
 ```
 
 Vision providers:
@@ -285,11 +257,11 @@ Conversation modes:
 ## Export
 
 ```bash
-uv run tweetkb export --adapter obsidian --vault ./obsidian-vault
-uv run tweetkb export --adapter spec --vault ./exports/spec
-uv run tweetkb export --adapter markdown --vault ./exports/markdown --exclude-category misc
-uv run tweetkb export --adapter jsonl --vault ./exports/jsonl --exclude-review
-uv run tweetkb export --adapter csv --vault ./exports/csv --include-category ai-agents,coding,models,tools
+tweetkb export --adapter obsidian --vault ./obsidian-vault
+tweetkb export --adapter spec --vault ./exports/spec
+tweetkb export --adapter markdown --vault ./exports/markdown --exclude-category misc
+tweetkb export --adapter jsonl --vault ./exports/jsonl --exclude-review
+tweetkb export --adapter csv --vault ./exports/csv --include-category ai-agents,coding,models,tools
 ```
 
 `spec` writes a static `index.html` with search, category filters, expandable
@@ -321,24 +293,46 @@ Images are not downloaded, OCRed, or semantically analyzed yet. The spec export
 can show image URLs/alt text captured during enrichment, but the current analysis
 model is text/link/context based.
 
+## Search
+
+Offline. No LLM.
+
+```bash
+tweetkb search rust
+tweetkb search 'from:karpathy gpu'
+tweetkb search mcp --category coding --json --limit 20
+tweetkb search 'link:github.com'
+tweetkb search rust --sort saved
+tweetkb search rust saved:7d
+tweetkb search rust --open
+tweetkb find nomic --json
+tweetkb digest --json
+tweetkb related STATUS_ID --json
+tweetkb map --from 0xSero
+tweetkb atlas
+tweetkb tui
+```
+
+`related` lists bookmarks that share an exact URL, a domain, or an author. Category overlap is opt-in (`--kinds cat`). These are facts in SQLite, not embedding similarity. `map --from HANDLE` is ASCII geography for one author. `atlas` writes a static local HTML map (`exports/atlas.html`) — packed categories, no force-directed layout, no server.
+
+FTS5 ranks by BM25, then recency. Tokens are AND. `from:handle` / `--from` filters author. `cat:slug` / `--category` filters the primary classification. `link:host` / `--domain` filters outbound URLs. `saved:7d` / `--saved-after` filters bookmark time (`captured_at`), not tweet age. `--sort rank|saved|posted`. `--json` writes `{"hits":[...]}` to stdout. Empty results exit 0. An empty query exits 2. Commands other than `init`/`migrate` fail if the database does not exist yet.
+
+Agents should start with:
+
+```bash
+tweetkb capabilities --json
+tweetkb next --json
+tweetkb agent-guide
+```
+
 ## Review
 
 ```bash
-uv run tweetkb review list --limit 50
-uv run tweetkb review approve 1234567890123456789
-uv run tweetkb review exclude 1234567890123456789
-uv run tweetkb review tag 1234567890123456789 research
-uv run tweetkb review junk --limit 25
-```
-
-## Compression
-
-TweetZip is an experimental local archive format for bookmark corpora.
-
-```bash
-uv run tweetkb compress export --out ./exports/bookmarks.twz
-uv run tweetkb compress verify ./exports/bookmarks.twz
-uv run tweetkb compress inspect ./exports/bookmarks.twz
+tweetkb review list --limit 50
+tweetkb review approve 1234567890123456789
+tweetkb review exclude 1234567890123456789
+tweetkb review tag 1234567890123456789 research
+tweetkb review junk --limit 25
 ```
 
 ## Instructions for AI coding agents
@@ -360,17 +354,17 @@ Install and verify:
 1. Ensure `uv` exists. If missing, install it from the official Astral docs.
 2. Run: git clone https://github.com/AdityaVG13/TweetKB.git TweetKB
 3. Run: cd TweetKB
-4. Run: uv sync --extra dev
-5. Run: uv run tweetkb --db /tmp/tweetkb-smoke.sqlite3 init
-6. Run: uv run tweetkb --help
-7. Run: uv run tweetkb
-8. Select `0` to quit the menu.
-9. Run: uv run pytest
-10. Run: uv run ruff check .
-11. Run: uv run tweetkb release-audit
+4. Run: uv tool install -e ".[tui]" --force
+5. Run: uv sync --extra dev
+6. Run: tweetkb --db /tmp/tweetkb-smoke.sqlite3 init
+7. Run: tweetkb --help
+8. Run: tweetkb
+9. Run: tweetkb capabilities --json
+10. Run: uv run pytest
+11. Run: uv run ruff check .
+12. Run: tweetkb release-audit
 
-Success means the CLI works, the menu opens, tests pass, lint passes, and
-release audit passes.
+Success means the CLI prints usage (not a blocking menu), capabilities JSON works, tests pass, lint passes, and release audit passes.
 ```
 
 Shell-only verification:
@@ -378,13 +372,15 @@ Shell-only verification:
 ```bash
 git clone https://github.com/AdityaVG13/TweetKB.git TweetKB
 cd TweetKB
+uv tool install -e ".[tui]" --force
 uv sync --extra dev
-uv run tweetkb --db /tmp/tweetkb-smoke.sqlite3 init
-uv run tweetkb --help
-printf '0\n' | uv run tweetkb
+tweetkb --db /tmp/tweetkb-smoke.sqlite3 init
+tweetkb --help
+tweetkb
+tweetkb capabilities --json
 uv run pytest
 uv run ruff check .
-uv run tweetkb release-audit
+tweetkb release-audit
 ```
 
 ## Public release audit
@@ -392,13 +388,13 @@ uv run tweetkb release-audit
 Run this before publishing source or building artifacts:
 
 ```bash
-uv run tweetkb release-audit
+tweetkb release-audit
 ```
 
 For a local folder that may contain ignored databases or vault exports:
 
 ```bash
-uv run tweetkb release-audit --strict-worktree
+tweetkb release-audit --strict-worktree
 ```
 
 See [docs/RELEASE.md](docs/RELEASE.md) for the full release checklist.
@@ -422,5 +418,4 @@ uv build
 - [Privacy](docs/PRIVACY.md)
 - [Release](docs/RELEASE.md)
 - [Terminal demo](docs/TERMINAL_DEMO.md)
-- [Roadmap](docs/ROADMAP.md)
 - [Security](SECURITY.md)

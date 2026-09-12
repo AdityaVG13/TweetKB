@@ -2,15 +2,22 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
 from .migrations import migrate
+from .normalize import normalize_collected_item
 from .util import ensure_dir, extract_status_id, normalize_status_url, stable_hash
 
 DEFAULT_DB = Path("data/bookmarks.sqlite3")
+
+
+def _chunks(values: list[int], size: int):
+    for index in range(0, len(values), size):
+        yield values[index : index + size]
 
 
 @dataclass(frozen=True)
@@ -25,12 +32,37 @@ class BookmarkInput:
 
 
 class Store:
-    def __init__(self, path: Path = DEFAULT_DB):
+    def __init__(self, path: Path = DEFAULT_DB, *, create: bool = False):
         self.path = Path(path)
-        ensure_dir(self.path.parent)
+        exists = self.path.exists()
+        if not exists and not create:
+            raise FileNotFoundError(f"database not found: {self.path}\nRun `tweetkb init` first.")
+        if not exists:
+            ensure_dir(self.path.parent)
         self.conn = sqlite3.connect(self.path)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys=ON")
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA busy_timeout=5000")
+        self.conn.execute("PRAGMA synchronous=NORMAL")
+        self._defer_commit = 0
+
+    def _commit(self) -> None:
+        if self._defer_commit:
+            return
+        self.conn.commit()
+
+    @contextmanager
+    def transaction(self):
+        self._defer_commit += 1
+        try:
+            yield
+            self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+        finally:
+            self._defer_commit -= 1
 
     def close(self) -> None:
         self.conn.close()
@@ -51,6 +83,14 @@ class Store:
 
     def upsert_bookmark_with_status(self, item: BookmarkInput | dict[str, Any]) -> tuple[int, bool] | None:
         data = item if isinstance(item, dict) else item.__dict__
+        normalized = normalize_collected_item(data)
+        if normalized:
+            captured_at = data.get("captured_at") or ""
+            collection_source = data.get("collection_source") or "browser"
+            data = dict(normalized)
+            if captured_at:
+                data["captured_at"] = captured_at
+            data["collection_source"] = collection_source
         status_url = data.get("status_url") or data.get("url")
         status_id = data.get("status_id") or extract_status_id(status_url)
         if not status_id:
@@ -117,7 +157,7 @@ class Store:
                 "browser",
             ),
         )
-        self.conn.commit()
+        self._commit()
         saved = self.conn.execute("SELECT id FROM bookmarks WHERE status_id = ?", (status_id,)).fetchone()
         if not saved:
             return None
@@ -130,6 +170,10 @@ class Store:
             link_id = self.upsert_link(url)
             if link_id:
                 self.add_bookmark_link(bookmark_id, link_id)
+
+    def replace_bookmark_links(self, bookmark_id: int, links: tuple[str, ...]) -> None:
+        self.conn.execute("DELETE FROM bookmark_links WHERE bookmark_id = ?", (bookmark_id,))
+        self._store_bookmark_links(bookmark_id, links)
 
     def upsert_link(self, url: str) -> int | None:
         if not url:
@@ -150,7 +194,7 @@ class Store:
                  last_seen_at=excluded.last_seen_at""",
             (url, domain, now, now),
         )
-        self.conn.commit()
+        self._commit()
         row = self.conn.execute("SELECT id FROM links WHERE url = ?", (url,)).fetchone()
         return int(row["id"]) if row else None
 
@@ -164,7 +208,7 @@ class Store:
                ON CONFLICT(normalized_name, type) DO NOTHING""",
             (name, normalized, entity_type, source),
         )
-        self.conn.commit()
+        self._commit()
         row = self.conn.execute("SELECT id FROM entities WHERE normalized_name = ? AND type = ?", (normalized, entity_type)).fetchone()
         return int(row["id"]) if row else None
 
@@ -173,7 +217,7 @@ class Store:
             "INSERT OR IGNORE INTO bookmark_links(bookmark_id, link_id, role) VALUES (?, ?, ?)",
             (bookmark_id, link_id, role),
         )
-        self.conn.commit()
+        self._commit()
 
     def add_bookmark_entity(
         self, bookmark_id: int, entity_id: int, salience: float = 0.5, evidence: str = ""
@@ -182,18 +226,24 @@ class Store:
             "INSERT OR IGNORE INTO bookmark_entities(bookmark_id, entity_id, salience, evidence) VALUES (?, ?, ?, ?)",
             (bookmark_id, entity_id, salience, evidence),
         )
-        self.conn.commit()
+        self._commit()
 
     def add_tags(self, bookmark_id: int, tags: Iterable[str]) -> None:
-        for tag in sorted({t.strip().lower() for t in tags if t and t.strip()}):
-            self.conn.execute("INSERT OR IGNORE INTO tags(name) VALUES (?)", (tag,))
-            row = self.conn.execute("SELECT id FROM tags WHERE name = ?", (tag,)).fetchone()
-            if row:
-                self.conn.execute(
-                    "INSERT OR IGNORE INTO bookmark_tags(bookmark_id, tag_id) VALUES (?, ?)",
-                    (bookmark_id, int(row["id"])),
-                )
-        self.conn.commit()
+        names = sorted({t.strip().lower() for t in tags if t and t.strip()})
+        if not names:
+            return
+        self.conn.executemany("INSERT OR IGNORE INTO tags(name) VALUES (?)", [(name,) for name in names])
+        placeholders = ",".join("?" * len(names))
+        rows = self.conn.execute(f"SELECT id, name FROM tags WHERE name IN ({placeholders})", names).fetchall()
+        self.conn.executemany(
+            "INSERT OR IGNORE INTO bookmark_tags(bookmark_id, tag_id) VALUES (?, ?)",
+            [(bookmark_id, int(row["id"])) for row in rows],
+        )
+        self._commit()
+
+    def set_tags(self, bookmark_id: int, tags: Iterable[str]) -> None:
+        self.conn.execute("DELETE FROM bookmark_tags WHERE bookmark_id = ?", (bookmark_id,))
+        self.add_tags(bookmark_id, tags)
 
     def set_embedding(
         self,
@@ -214,7 +264,7 @@ class Store:
                  updated_at=excluded.updated_at""",
             (bookmark_id, provider, model, len(vector), json.dumps(vector), content_hash, now),
         )
-        self.conn.commit()
+        self._commit()
 
     def analysis_state_current(self, bookmark_id: int, stage: str, provider: str, content_hash: str) -> bool:
         row = self.conn.execute(
@@ -234,7 +284,7 @@ class Store:
                  updated_at=excluded.updated_at""",
             (bookmark_id, stage, provider, content_hash, now),
         )
-        self.conn.commit()
+        self._commit()
 
     def set_content_enrichment(
         self,
@@ -272,7 +322,7 @@ class Store:
                 json.dumps(metadata or {}, ensure_ascii=True, sort_keys=True),
             ),
         )
-        self.conn.commit()
+        self._commit()
         return True
 
     def get_content_enrichment(self, bookmark_id: int) -> sqlite3.Row | None:
@@ -372,7 +422,7 @@ class Store:
                     now,
                 ),
             )
-        self.conn.commit()
+        self._commit()
 
     def update_bookmark_analysis(
         self,
@@ -398,7 +448,7 @@ class Store:
                 bookmark_id,
             ),
         )
-        self.conn.commit()
+        self._commit()
 
     def list_bookmarks(
         self,
@@ -515,6 +565,45 @@ class Store:
             )
         )
 
+    def link_urls_for_ids(self, bookmark_ids: list[int]) -> dict[int, list[str]]:
+        out: dict[int, list[str]] = {int(i): [] for i in bookmark_ids}
+        for chunk in _chunks(bookmark_ids, 800):
+            placeholders = ",".join("?" * len(chunk))
+            rows = self.conn.execute(
+                f"""SELECT bl.bookmark_id, l.url FROM bookmark_links bl
+                    JOIN links l ON l.id = bl.link_id
+                    WHERE bl.bookmark_id IN ({placeholders})
+                    ORDER BY l.id""",
+                chunk,
+            )
+            for row in rows:
+                out[int(row["bookmark_id"])].append(row["url"])
+        return out
+
+    def enrichment_texts_for_ids(self, bookmark_ids: list[int]) -> dict[int, list[str]]:
+        out: dict[int, list[str]] = {int(i): [] for i in bookmark_ids}
+        for chunk in _chunks(bookmark_ids, 800):
+            placeholders = ",".join("?" * len(chunk))
+            rows = self.conn.execute(
+                f"""SELECT bookmark_id, content_text FROM content_enrichments
+                    WHERE bookmark_id IN ({placeholders}) AND content_text != ''
+                    ORDER BY bookmark_id,
+                      CASE source_type
+                        WHEN 'x-article' THEN 0
+                        WHEN 'x-status' THEN 1
+                        WHEN 'x-conversation' THEN 2
+                        WHEN 'linked-page' THEN 3
+                        ELSE 4
+                      END,
+                      captured_at DESC""",
+                chunk,
+            )
+            for row in rows:
+                text = row["content_text"]
+                if text:
+                    out[int(row["bookmark_id"])].append(text)
+        return out
+
     def get_bookmark_classifications(self, bookmark_id: int) -> list[sqlite3.Row]:
         return list(
             self.conn.execute(
@@ -630,15 +719,21 @@ class Store:
         )
 
     def get_top_domains(self, limit: int = 20) -> list[sqlite3.Row]:
+        from .search import NOISE_LINK_HOSTS
+
+        noise = sorted(NOISE_LINK_HOSTS)
         return list(
             self.conn.execute(
-                """SELECT domain, COUNT(*) as link_count
-                   FROM links
-                   WHERE domain != ''
-                   GROUP BY domain
+                f"""SELECT l.domain, COUNT(DISTINCT bl.bookmark_id) as link_count
+                   FROM links l
+                   JOIN bookmark_links bl ON bl.link_id = l.id
+                   JOIN bookmarks b ON b.id = bl.bookmark_id
+                   WHERE b.is_deleted = 0 AND IFNULL(l.domain, '') != ''
+                     AND lower(l.domain) NOT IN ({",".join("?" * len(noise))})
+                   GROUP BY l.domain
                    ORDER BY link_count DESC
                    LIMIT ?""",
-                (limit,),
+                [*noise, int(limit)],
             )
         )
 
@@ -683,14 +778,14 @@ class Store:
             "UPDATE bookmarks SET review_state = ?, review_note = ?, needs_review = 0, updated_at = datetime('now') WHERE id = ?",
             (state, note, bookmark_id),
         )
-        self.conn.commit()
+        self._commit()
 
     def set_review_state(self, bookmark_id: int, state: str) -> None:
         self.conn.execute(
             "UPDATE bookmarks SET review_state = ?, needs_review = 0, updated_at = datetime('now') WHERE id = ?",
             (state, bookmark_id),
         )
-        self.conn.commit()
+        self._commit()
 
     def log_event(
         self,
@@ -703,7 +798,7 @@ class Store:
             "INSERT INTO processing_events(bookmark_id, event_type, message, payload_json) VALUES (?, ?, ?, ?)",
             (bookmark_id, event_type, message, json.dumps(payload or {}, ensure_ascii=True)),
         )
-        self.conn.commit()
+        self._commit()
 
     def log_collection_run(
         self,
@@ -722,7 +817,7 @@ class Store:
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (run_id, source, now, now, status, seen, changed, unchanged, error, json.dumps(metadata or {}, ensure_ascii=True)),
         )
-        self.conn.commit()
+        self._commit()
 
     def log_export_run(
         self,
@@ -738,11 +833,11 @@ class Store:
                VALUES (?, ?, ?, ?, ?, ?)""",
             (profile_id, adapter, output_path, exported, skipped, now),
         )
-        self.conn.commit()
+        self._commit()
 
     def vacuum(self) -> None:
         self.conn.execute("VACUUM")
-        self.conn.commit()
+        self._commit()
 
     def page_stats(self) -> dict[str, Any]:
         try:

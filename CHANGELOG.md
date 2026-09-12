@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.0
+
+- Product is gather → SQLite → search → analyze. Removed TweetZip/compress v1–v6 and the stale roadmap.
+- Default collect talks to already-running Chrome via Apple Events on `https://x.com/i/history`. `--headless` clones the logged-in profile into an isolated Chrome.
+- `--all` uses an in-page scroller and polls every few seconds (not one Apple Event per tweet). Incremental stop skips a known prefix and halts on a trailing known streak.
+- `tweetkb search` is offline FTS5 (BM25). Query syntax: `from:`, `cat:`, `link:`, `saved:7d`. `--json`, `--sort rank|saved|posted`, `--open`.
+- Reconstruct outbound URLs from tweet text (`https://` split onto the next line). `tweetkb repair-links` backfills without a browser.
+- `tweetkb digest` / `related` / `map` / `atlas` organize by category, domain, and author. Related edges are facts (same URL/domain/author), not embeddings.
+- `tweetkb tui` is search + selected tweet + related neighbors. `tweetkb wizard` is the old numbered menu. Bare `tweetkb` prints usage.
+- `tweetkb unbookmark --ids … --yes` removes selected tweets from X; local rows stay.
+- Agent surfaces: `capabilities --json`, `next --json`, `agent-guide`. After install the command is `tweetkb` (`uv tool install -e ".[tui]"`).
+- Missing DB hard-fails except `init`/`migrate`. Local-hash embeddings are process-stable. Tests live in `tests/` and are failure-first.
+- Removed machine-specific `~/Developer` install paths from docs.
+
 ## 0.5.0
 
 - Added normal Chrome and Apple Events collection paths for logged-in X sessions.

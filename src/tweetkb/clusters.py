@@ -14,18 +14,20 @@ def generate_clusters(store, min_size: int = 3, min_confidence: float = 0.4) -> 
     # Get all classified bookmarks grouped by primary category
     bookmarks_by_cat: dict[str, list[dict]] = defaultdict(list)
 
-    rows = store.list_bookmarks()
+    rows = store.conn.execute(
+        """
+        SELECT b.id, b.tweet_text, c.category_slug, c.confidence
+        FROM bookmarks b
+        JOIN classifications c ON c.bookmark_id = b.id AND c.is_primary = 1
+        WHERE b.is_deleted = 0 AND c.confidence >= ?
+        """,
+        (min_confidence,),
+    ).fetchall()
     for row in rows:
-        classifications = store.get_bookmark_classifications(int(row["id"]))
-        if not classifications:
-            continue
-        primary = next((c for c in classifications if c["is_primary"]), classifications[0])
-        if float(primary["confidence"]) < min_confidence:
-            continue
-        bookmarks_by_cat[primary["category_slug"]].append({
+        bookmarks_by_cat[row["category_slug"]].append({
             "id": int(row["id"]),
-            "category": primary["category_slug"],
-            "confidence": float(primary["confidence"]),
+            "category": row["category_slug"],
+            "confidence": float(row["confidence"]),
             "text": (row["tweet_text"] or "")[:300],
         })
 
@@ -75,16 +77,25 @@ def generate_clusters(store, min_size: int = 3, min_confidence: float = 0.4) -> 
 
 def _split_by_entities(bookmarks: list[dict], store) -> dict[str, list[dict]]:
     """Split bookmarks into sub-clusters based on entity overlap."""
-    # Get entities for each bookmark
-    bookmark_entities: dict[int, set[str]] = {}
+    bookmark_entities: dict[int, set[str]] = defaultdict(set)
     entity_bookmarks: dict[str, set[int]] = defaultdict(set)
-
-    for bm in bookmarks:
-        entities = store.get_bookmark_entities(bm["id"])
-        names = {e["name"].lower() for e in entities}
-        bookmark_entities[bm["id"]] = names
-        for name in names:
-            entity_bookmarks[name].add(bm["id"])
+    ids = [int(bm["id"]) for bm in bookmarks]
+    if ids:
+        placeholders = ",".join("?" * len(ids))
+        rows = store.conn.execute(
+            f"""
+            SELECT be.bookmark_id, lower(e.normalized_name) AS name
+            FROM bookmark_entities be
+            JOIN entities e ON e.id = be.entity_id
+            WHERE be.bookmark_id IN ({placeholders})
+            """,
+            ids,
+        ).fetchall()
+        for row in rows:
+            name = row["name"]
+            bookmark_id = int(row["bookmark_id"])
+            bookmark_entities[bookmark_id].add(name)
+            entity_bookmarks[name].add(bookmark_id)
 
     if not entity_bookmarks:
         return {"General": bookmarks}

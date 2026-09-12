@@ -7,7 +7,7 @@ from tweetkb.media_export import export_media_bundle
 
 
 def test_media_export_writes_bundle_without_api_key(tmp_path, monkeypatch):
-    store = Store(tmp_path / "db.sqlite3")
+    store = Store(tmp_path / "db.sqlite3", create=True)
     store.init()
     bookmark_id = store.upsert_bookmark(
         {
@@ -61,7 +61,7 @@ def test_media_export_writes_bundle_without_api_key(tmp_path, monkeypatch):
 
 
 def test_media_export_manifest_only_does_not_download(tmp_path, monkeypatch):
-    store = Store(tmp_path / "db.sqlite3")
+    store = Store(tmp_path / "db.sqlite3", create=True)
     store.init()
     bookmark_id = store.upsert_bookmark({"status_url": "https://x.com/a/status/1", "tweet_text": "pic"})
     assert bookmark_id is not None

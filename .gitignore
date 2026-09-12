@@ -30,3 +30,10 @@ build/
 *.sqlite3
 *.db
 *.bak
+
+# Design mockups and local perf captures.
+sketches/*.png
+sketches/*.svg
+tests/artifacts/
+.skill-loop-progress.md
+

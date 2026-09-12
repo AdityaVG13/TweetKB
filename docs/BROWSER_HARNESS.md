@@ -12,8 +12,8 @@ Browser-Harness cloud browsers or profile sync.
 ## Install
 
 ```bash
-git clone https://github.com/browser-use/browser-harness ~/Developer/browser-harness
-cd ~/Developer/browser-harness
+git clone https://github.com/browser-use/browser-harness
+cd browser-harness
 uv tool install -e .
 browser-harness --setup
 browser-harness --doctor
@@ -62,7 +62,7 @@ uv run tweetkb collect --limit 100 --batch-size 20
 ## Browser Modes
 
 Interactive collection defaults to `apple-events`, which reads your already-open
-normal Chrome `https://x.com/i/bookmarks` tab. Use this when your normal browser
+normal Chrome `https://x.com/i/history` tab. Use this when your normal browser
 is already logged in to X.
 
 With `--all`, collection stops after it reaches already-saved bookmark history.
@@ -114,7 +114,7 @@ Common fixes:
 
 - `browser-harness not on PATH`: run `uv tool update-shell`, then restart the shell.
 - Login page opens: log in to X/Twitter in the opened Chrome profile, then rerun collection.
-- Empty collection: open `https://x.com/i/bookmarks` in the same profile and confirm bookmarks are visible.
+- Empty collection: open `https://x.com/i/history` in the same profile and confirm bookmarks are visible.
 - Chrome asks about remote debugging: click allow, then rerun the command.
 - Normal Chrome attach is flaky: use the default managed profile instead.
 - Apple Events fails on macOS: allow Chrome automation in System Settings.

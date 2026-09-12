@@ -3,6 +3,13 @@ from __future__ import annotations
 import re
 from urllib.parse import urlparse
 
+STOPWORDS = {
+    "a", "an", "the", "and", "or", "but", "if", "in", "on", "at", "to", "for", "of", "as",
+    "it", "its", "this", "that", "these", "those", "you", "your", "we", "our", "they",
+    "i", "me", "my", "so", "here", "there", "then", "than", "when", "what", "which",
+    "who", "how", "why", "not", "no", "yes", "just", "also", "from", "with", "by",
+}
+
 ENTITY_TYPE_ALIASES = {
     # Models
     "gpt": "model",
@@ -168,6 +175,8 @@ def extract_entities(text: str, links: list[str] | tuple[str, ...] = ()) -> list
     for match in ENTITY_RE.finditer(text):
         name = match.group(0).strip()
         if len(name) < 2:
+            continue
+        if name.lower() in STOPWORDS:
             continue
         entity_type = detect_entity_type(name)
         key = (name.lower(), entity_type)

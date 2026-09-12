@@ -64,13 +64,13 @@ src/tweetkb/
   review.py            Review state machine, actions
   embeddings.py        Local and optional provider embedding helpers
   util.py              Shared utilities
-  compress.py          TweetZip compression (Python reference impl)
+  search.py            FTS search over tweets and enrichments
 ```
 
 ## Data Flow
 
 ### Collection
-1. Browser-Harness scrolls x.com/i/bookmarks, extracts tweet data
+1. Browser-Harness scrolls x.com/i/history, extracts tweet data
 2. Collector calls `store.upsert_bookmark()` for each tweet
 3. Bookmark deduplicated by `status_id`
 4. `content_hash` skips re-analysis of unchanged bookmarks
@@ -99,9 +99,6 @@ Rich structured fields (entities, links, tags) stored as JSON in `bookmarks` for
 ### Why FTS5?
 Full-text search on tweet text, summary, and author fields via SQLite FTS5 virtual table with triggers keeping it in sync.
 
-### Why varint encoding in TweetZip?
-Variable-length integer encoding reduces record headers by 50-80% for typical tweet IDs and counts.
-
 ### Why heuristic clustering?
 Avoids LLM dependency. Groups bookmarks by category + entity + domain overlap. Configurable threshold.
 
@@ -114,7 +111,6 @@ Users may want AI classification but shouldn't require API keys. Provider abstra
 - **Classification**: ~1000 bookmarks/second (local heuristic)
 - **Export**: ~500 notes/second for Obsidian
 - **FTS search**: Sub-100ms for 10K bookmarks
-- **TweetZip compress**: ~10K records/second
 
 ## Future Considerations
 

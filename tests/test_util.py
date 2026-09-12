@@ -1,17 +1,32 @@
-from tweetkb.util import extract_status_id, normalize_status_url, slugify
+from __future__ import annotations
+
+from tweetkb.util import extract_status_id, normalize_status_url, slugify, stable_hash
 
 
 def test_extract_status_id_from_x_url():
-    assert extract_status_id("https://x.com/example/status/123456789?s=20") == "123456789"
+    assert extract_status_id("https://x.com/alice/status/1234567890123456789") == "1234567890123456789"
 
 
 def test_extract_status_id_from_twitter_url():
-    assert extract_status_id("https://twitter.com/foo/status/42") == "42"
+    assert extract_status_id("https://twitter.com/alice/status/123") == "123"
 
 
-def test_normalize_status_url():
-    assert normalize_status_url("https://twitter.com/foo/status/42?s=20", "@bar") == "https://x.com/bar/status/42"
+def test_extract_status_id_rejects_non_status_url():
+    assert extract_status_id("https://x.com/alice") is None
 
 
-def test_slugify_has_fallback():
-    assert slugify("!!!", fallback="x") == "x"
+def test_normalize_status_url_rewrites_twitter_host():
+    assert (
+        normalize_status_url("https://twitter.com/Alice/status/1", "alice", "1")
+        == "https://x.com/alice/status/1"
+    )
+
+
+def test_slugify_falls_back_when_empty():
+    assert slugify("???") == "bookmark"
+
+
+def test_stable_hash_is_sha256_hex_and_stable():
+    assert stable_hash("hello") == stable_hash("hello")
+    assert stable_hash("hello") != stable_hash("Hello")
+    assert len(stable_hash("hello")) == 64
