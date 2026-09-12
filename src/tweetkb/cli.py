@@ -1263,6 +1263,7 @@ def _cmd_search(args, store) -> int:
         print(
             json.dumps(
                 {
+                    "count": len(hits),
                     "hits": [
                         {
                             "status_id": hit.status_id,
@@ -1284,6 +1285,7 @@ def _cmd_search(args, store) -> int:
     elif not hits:
         print("no matches", file=sys.stderr)
     else:
+        print(f"{len(hits)} hits", file=sys.stderr)
         for hit in hits:
             handle = f"@{hit.author_handle}" if hit.author_handle else "-"
             category = hit.category or "-"

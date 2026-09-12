@@ -35,6 +35,19 @@ def test_tui_boot_shows_category_meter(store):
             await search.action_submit()
             await pilot.pause()
             hits = app.query_one("#hits")
-            assert len(list(hits.children)) >= 1
+            assert len(list(hits.children)) >= 2
+            chrome = str(app.query_one("#chrome").render())
+            assert "matches 2" in chrome
+            assert app.focused is hits
+            app.action_focus_next()
+            await pilot.pause()
+            assert app.focused is app.query_one("#search")
+            app.action_focus_next()
+            await pilot.pause()
+            assert app.focused is hits
+            app.query_one("#search").focus()
+            app.action_escape()
+            assert app.focused is hits
+            app.action_show_help()
 
     asyncio.run(scenario())

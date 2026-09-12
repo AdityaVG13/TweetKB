@@ -155,7 +155,7 @@ def test_search_cli_json_is_parseable_and_empty_hits_exit_zero(db_path, capsys):
     code = main(["--db", str(db_path), "search", "zzzz-no-such-token", "--json"])
     captured = capsys.readouterr()
     assert code == 0
-    assert json.loads(captured.out) == {"hits": []}
+    assert json.loads(captured.out) == {"count": 0, "hits": []}
 
 
 def test_find_is_an_alias_for_search(db_path, capsys):
