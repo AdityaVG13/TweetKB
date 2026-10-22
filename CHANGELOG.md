@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.3
+
+- TUI hit list draws only the visible rows, so a broad search does not mount one widget per hit.
+- Search builds snippets for the returned slice only. Word-boundary matching is faster and still returns the same hits.
+- `tweetkb release-audit --history` flags removed private files and home paths that remain in git history. The default audit still checks the tracked tree only.
+- Docs no longer claim the tool never deletes. `tweetkb unbookmark --ids … --yes` is the one write to X; local rows stay.
+- Removed the stale terminal-menu screenshot.
+
 ## 0.6.2
 
 - TUI: scrollable hit list with match count, tab between search and results, esc/ctrl+c quit, enter opens the tweet, `l` opens the outbound link, j/k in the list.
