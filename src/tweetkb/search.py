@@ -199,7 +199,7 @@ def search_bookmarks(
     rows = store.conn.execute(sql, params).fetchall()
     scores = _fts_scores(store, parsed.tokens)
 
-    ranked: list[tuple[float, int, str, str, SearchHit]] = []
+    ranked: list[tuple[float, int, str, str, sqlite3.Row]] = []
     for row in rows:
         blob = " ".join(
             [
@@ -210,29 +210,14 @@ def search_bookmarks(
                 row["author_handle"] or "",
             ]
         )
-        if tokens and not all(_has_token(blob, token) for token in tokens):
+        counts = [_token_count(blob, token) for token in tokens]
+        if tokens and any(count == 0 for count in counts):
             continue
-        density = sum(_token_count(blob, token) for token in tokens)
+        density = sum(counts)
         bookmark_id = int(row["id"])
         fts_rank = scores.get(bookmark_id)
         rank = float(fts_rank) if fts_rank is not None else (100.0 - density)
-        snippet_src = row["tweet_text"] or ""
-        if tokens and not all(_has_token(snippet_src, token) for token in tokens):
-            snippet_src = row["enrichment_text"] or row["link_text"] or blob
-        hit = SearchHit(
-            bookmark_id=bookmark_id,
-            status_id=str(row["status_id"]),
-            status_url=row["status_url"] or "",
-            author_handle=row["author_handle"] or "",
-            tweet_text=row["tweet_text"] or "",
-            snippet=_snippet(snippet_src, parsed.text or " ".join(tokens)),
-            rank=rank,
-            category=row["category"] or "",
-            outbound_links=_outbound(row["outbound"] or ""),
-            captured_at=row["captured_at"] or "",
-            created_at=row["created_at"] or "",
-        )
-        ranked.append((rank, -density, row["captured_at"] or "", row["created_at"] or "", hit))
+        ranked.append((rank, -density, row["captured_at"] or "", row["created_at"] or "", row))
 
     if mode == "saved":
         ranked.sort(key=lambda item: _invert_iso(item[2]))
@@ -240,17 +225,66 @@ def search_bookmarks(
         ranked.sort(key=lambda item: _invert_iso(item[3]))
     else:
         ranked.sort(key=lambda item: (item[0], item[1], _invert_iso(item[2])))
-    return [item[4] for item in ranked[: int(limit)]]
+    query_text = parsed.text or " ".join(tokens)
+    hits: list[SearchHit] = []
+    for rank, _neg_density, captured_at, created_at, row in ranked[: int(limit)]:
+        snippet_src = row["tweet_text"] or ""
+        if tokens and not all(_has_token(snippet_src, token) for token in tokens):
+            snippet_src = row["enrichment_text"] or row["link_text"] or " ".join(
+                [
+                    row["tweet_text"] or "",
+                    row["raw_text"] or "",
+                    row["enrichment_text"] or "",
+                    row["link_text"] or "",
+                    row["author_handle"] or "",
+                ]
+            )
+        hits.append(
+            SearchHit(
+                bookmark_id=int(row["id"]),
+                status_id=str(row["status_id"]),
+                status_url=row["status_url"] or "",
+                author_handle=row["author_handle"] or "",
+                tweet_text=row["tweet_text"] or "",
+                snippet=_snippet(snippet_src, query_text),
+                rank=rank,
+                category=row["category"] or "",
+                outbound_links=_outbound(row["outbound"] or ""),
+                captured_at=captured_at,
+                created_at=created_at,
+            )
+        )
+    return hits
 
 
 def _has_token(blob: str, token: str) -> bool:
     return _token_count(blob, token) > 0
 
 
+def _is_ascii_word(ch: str) -> bool:
+    return ch == "_" or "0" <= ch <= "9" or "a" <= ch <= "z"
+
+
 def _token_count(blob: str, token: str) -> int:
-    if not token:
+    if not token or not blob:
         return 0
-    return len(re.findall(rf"(?i)(?<![A-Za-z0-9_]){re.escape(token)}(?![A-Za-z0-9_])", blob or ""))
+    haystack = blob.lower()
+    needle = token.lower()
+    width = len(needle)
+    count = 0
+    start = 0
+    while True:
+        index = haystack.find(needle, start)
+        if index < 0:
+            return count
+        before_ok = index == 0 or not _is_ascii_word(haystack[index - 1])
+        after = index + width
+        after_ok = after == len(haystack) or not _is_ascii_word(haystack[after])
+        if before_ok and after_ok:
+            count += 1
+            start = after
+        else:
+            start = index + 1
 
 
 def _outbound(value: str) -> tuple[str, ...]:

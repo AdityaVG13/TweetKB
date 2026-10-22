@@ -6,7 +6,18 @@ from conftest import add_bookmark
 
 from tweetkb.cli import main
 from tweetkb.db import Store
-from tweetkb.search import search_bookmarks
+from tweetkb.search import _token_count, search_bookmarks
+
+
+def test_token_count_uses_ascii_word_boundaries():
+    assert _token_count("trust rust", "rust") == 1
+    assert _token_count("Rust.", "rust") == 1
+    assert _token_count("_rust", "rust") == 0
+    assert _token_count("rust-lang", "rust") == 1
+    assert _token_count("see 3.14 now", "3.14") == 1
+    assert _token_count("é rust", "rust") == 1
+    assert _token_count("aaa", "aa") == 0
+    assert _token_count("aa aa", "aa") == 2
 
 
 def test_search_returns_the_bookmark_whose_tweet_text_contains_the_query(store):
@@ -27,6 +38,7 @@ def test_search_finds_tokens_in_author_handle(store):
     hits = search_bookmarks(store, "karpathy")
 
     assert [hit.status_id for hit in hits] == ["11"]
+    assert "karpathy" in hits[0].snippet.lower()
 
 
 def test_search_finds_text_only_present_in_enrichment(store):
@@ -186,16 +198,16 @@ def test_search_open_uses_system_opener_for_top_hit(db_path, capsys, monkeypatch
 
 
 def test_search_finds_token_only_present_in_reconstructed_link(store):
-    add_bookmark(store, "11", "Make me happy\nhttps://\ngithub.com/kossnocorp/gen\notype", handle="alice")
+    add_bookmark(store, "11", "see this\nhttps://\ngithub.com/example/fix\nturepath", handle="alice")
     add_bookmark(store, "22", "unrelated cooking recipe", handle="bob")
 
-    hits = search_bookmarks(store, "genotype")
+    hits = search_bookmarks(store, "fixturepath")
 
     assert [hit.status_id for hit in hits] == ["11"]
 
 
 def test_link_domain_filter_keeps_only_that_host(store):
-    add_bookmark(store, "11", "paper\nhttps://\narxiv.org/abs/2609.04981", handle="alice")
+    add_bookmark(store, "11", "paper\nhttps://\narxiv.org/abs/0000.00000", handle="alice")
     add_bookmark(store, "22", "code\nhttps://\ngithub.com/foo/bar", handle="bob")
 
     hits = search_bookmarks(store, "link:arxiv.org")

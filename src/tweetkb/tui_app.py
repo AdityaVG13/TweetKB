@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.events import Key
-from textual.widgets import Footer, Input, Label, ListItem, ListView, Static
+from textual.message import Message
+from textual.widgets import Footer, Input, Label, Static
 
 from .digest import build_digest
 from .graphview import ascii_flowchart, category_meters, mermaid_flowchart, sonar_scope
@@ -15,19 +17,95 @@ from .relations import related_bookmarks
 from .search import SearchHit, search_bookmarks
 
 
-class HitItem(ListItem):
+class HitHighlighted(Message):
     def __init__(self, hit: SearchHit) -> None:
-        snippet = display_tweet_text(hit.tweet_text or hit.snippet or "")[:72]
-        handle = f"@{hit.author_handle}" if hit.author_handle else "-"
-        super().__init__(Label(f"{hit.status_id}  {handle}  {hit.category or '-'}\n{snippet}"))
         self.hit = hit
+        super().__init__()
 
 
-class HitList(ListView):
+class HitPane(Static):
+    """Paint only the visible hit window. j/k still walk the full result."""
+
+    can_focus = True
     BINDINGS = [
         Binding("j", "cursor_down", "down", show=False),
         Binding("k", "cursor_up", "up", show=False),
     ]
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.hits: list[SearchHit] = []
+        self.cursor = 0
+        self.window_origin = 0
+        self._painting = False
+
+    def set_hits(self, hits: list[SearchHit]) -> None:
+        self.hits = list(hits)
+        self.cursor = 0
+        self.window_origin = 0
+        self._paint()
+
+    def clear_hits(self) -> None:
+        self.hits = []
+        self.cursor = 0
+        self.window_origin = 0
+        self.update("")
+
+    def _window(self) -> int:
+        height = self.size.height
+        if height <= 0:
+            return 8
+        return max(1, height // 2)
+
+    def _paint(self) -> None:
+        if self._painting:
+            return
+        self._painting = True
+        try:
+            self._paint_window()
+        finally:
+            self._painting = False
+
+    def _paint_window(self) -> None:
+        if not self.hits:
+            self.update("")
+            return
+        window = self._window()
+        if self.cursor < self.window_origin:
+            self.window_origin = self.cursor
+        elif self.cursor >= self.window_origin + window:
+            self.window_origin = self.cursor - window + 1
+        end = min(len(self.hits), self.window_origin + window)
+        body = Text()
+        for index in range(self.window_origin, end):
+            hit = self.hits[index]
+            selected = index == self.cursor
+            mark = ">" if selected else " "
+            snippet = display_tweet_text(hit.tweet_text or hit.snippet or "")[:72]
+            handle = f"@{hit.author_handle}" if hit.author_handle else "-"
+            style = "bold #3ee0c4" if selected else "#9fddd0"
+            body.append(f"{mark} {hit.status_id}  {handle}  {hit.category or '-'}\n", style=style)
+            body.append(f"  {snippet}\n", style=style)
+        self.update(body)
+
+    def on_resize(self, event: Any) -> None:
+        if self._painting:
+            return
+        self._paint()
+
+    def action_cursor_down(self) -> None:
+        if not self.hits or self.cursor >= len(self.hits) - 1:
+            return
+        self.cursor += 1
+        self._paint()
+        self.post_message(HitHighlighted(self.hits[self.cursor]))
+
+    def action_cursor_up(self) -> None:
+        if not self.hits or self.cursor <= 0:
+            return
+        self.cursor -= 1
+        self._paint()
+        self.post_message(HitHighlighted(self.hits[self.cursor]))
 
 
 class TweetKBApp(App[int]):
@@ -50,13 +128,11 @@ class TweetKBApp(App[int]):
     #right { width: 1fr; }
     .pane-label { height: 1; color: #7aaea6; padding: 0 1; text-style: bold; }
     #meters { height: 7; border: tall #1a4a44; padding: 0 1; color: #3ee0c4; }
-    #hits { height: 1fr; border: tall #1a4a44; }
+    #hits { height: 1fr; border: tall #1a4a44; padding: 0 1; }
     #hits:focus { border: tall #3ee0c4; }
     #card_scroll, #graph_scroll { height: 1fr; border: tall #1a4a44; padding: 0 1; }
     #card { color: #e7fff9; }
     #graph { color: #9fddd0; }
-    ListView > ListItem { height: auto; min-height: 3; padding: 0 1; color: #9fddd0; }
-    ListItem.-highlight { background: #04332e; color: #3ee0c4; }
     """
     BINDINGS = [
         Binding("ctrl+c", "quit", "quit", priority=True),
@@ -86,7 +162,7 @@ class TweetKBApp(App[int]):
             with Vertical(id="left"):
                 yield Static(self._meter_text(), id="meters")
                 yield Label("HITS", classes="pane-label", id="hits_label")
-                yield HitList(id="hits")
+                yield HitPane(id="hits")
             with Vertical(id="mid"):
                 yield Label("TWEET  ·  enter opens", classes="pane-label")
                 with VerticalScroll(id="card_scroll"):
@@ -112,7 +188,7 @@ class TweetKBApp(App[int]):
 
     def action_focus_next(self) -> None:
         if isinstance(self.focused, Input):
-            self.query_one("#hits", ListView).focus()
+            self.query_one("#hits", HitPane).focus()
         else:
             self.query_one("#search", Input).focus()
 
@@ -124,7 +200,7 @@ class TweetKBApp(App[int]):
 
     def action_escape(self) -> None:
         if isinstance(self.focused, Input):
-            hits = self.query_one("#hits", ListView)
+            hits = self.query_one("#hits", HitPane)
             if self._hit_count:
                 hits.focus()
             else:
@@ -175,8 +251,8 @@ class TweetKBApp(App[int]):
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         query = (event.value or "").strip()
-        hits_view = self.query_one("#hits", ListView)
-        await hits_view.clear()
+        hits_view = self.query_one("#hits", HitPane)
+        hits_view.clear_hits()
         self.center = None
         self._neighbors = []
         if not query:
@@ -194,34 +270,25 @@ class TweetKBApp(App[int]):
             return
         self._hit_count = len(hits)
         self.query_one("#chrome", Static).update(self._chrome_line())
-        self.query_one("#hits_label", Label).update(f"HITS  {self._hit_count}")
         if not hits:
+            self.query_one("#hits_label", Label).update("HITS  0")
             self.query_one("#card", Static).update(f"no matches for “{query}”")
             self.notify(f"no matches for {query}", severity="warning", timeout=3)
             self._paint_graph()
             return
-        for hit in hits:
-            await hits_view.append(HitItem(hit))
-        hits_view.index = 0
-        self.center = hits[0]
-        self._show_card(hits[0])
-        self._refresh_graph()
+        hits_view.set_hits(hits)
+        self._select(hits[0], hits_view)
         hits_view.focus()
         self.notify(f"{self._hit_count} matches", timeout=2)
 
-    def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
-        item = event.item
-        if isinstance(item, HitItem):
-            self.center = item.hit
-            self._show_card(item.hit)
-            self._refresh_graph()
+    def on_hit_highlighted(self, event: HitHighlighted) -> None:
+        self._select(event.hit, self.query_one("#hits", HitPane))
 
-    def on_list_view_selected(self, event: ListView.Selected) -> None:
-        item = event.item
-        if isinstance(item, HitItem):
-            self.center = item.hit
-            self._show_card(item.hit)
-            self._refresh_graph()
+    def _select(self, hit: SearchHit, pane: HitPane) -> None:
+        self.center = hit
+        self._show_card(hit)
+        self._refresh_graph()
+        self.query_one("#hits_label", Label).update(f"HITS  {pane.cursor + 1}/{len(pane.hits)}")
 
     def _chrome_line(self) -> str:
         total = self.digest.get("total") or 0
