@@ -82,7 +82,7 @@ def test_changed_only_reclassifies_when_outbound_links_are_added(store):
 
 
 def test_unmatched_tweet_still_gets_misc_as_primary(store):
-    add_bookmark(store, "1", "This would have been so easy today")
+    add_bookmark(store, "1", "nothing in this line matches a category")
 
     run_analysis(store, stage="classify", changed_only=False)
 

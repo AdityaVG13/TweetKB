@@ -31,8 +31,17 @@ files only.
 ## History Hygiene
 
 The tracked tree can be clean while git history still contains old author
-metadata or removed files. For an anonymous public release, publish from a fresh
-repository or an orphan branch created from the sanitized tree.
+metadata or removed files. Scan history separately:
+
+```bash
+uv run tweetkb release-audit --history
+```
+
+That check is not part of the default audit. This repository's existing
+history still contains removed prompt files, so `--history` fails here on
+purpose. A new tag does not erase those commits. For an anonymous public
+release, publish from a fresh repository or an orphan branch created from
+the sanitized tree.
 
 Do not publish an existing private history if the goal is no developer linkage.
 

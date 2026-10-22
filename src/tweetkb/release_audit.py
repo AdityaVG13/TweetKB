@@ -26,21 +26,6 @@ class Violation:
     snippet: str = ""
 
 
-CONTENT_RULES: tuple[Rule, ...] = (
-    Rule(
-        "absolute-user-home-path",
-        re.compile(r"(?i)(/Users/[A-Za-z0-9._-]+|/home/[A-Za-z0-9._-]+|C:\\Users\\[A-Za-z0-9._-]+)"),
-        "absolute local user path found",
-    ),
-    Rule(
-        "secret-assignment",
-        re.compile(
-            r"(?i)\b(api[_-]?key|secret|token|password|bearer)\b\s*[:=]\s*['\"][^'\"\s]{12,}['\"]"
-        ),
-        "possible committed secret found",
-    ),
-)
-
 TRACKED_PATH_DENYLIST = (
     "data/*",
     "obsidian-vault/*",
@@ -52,6 +37,32 @@ TRACKED_PATH_DENYLIST = (
     "*.db-*",
     "*.bak",
     "*.twz",
+)
+
+HISTORY_PATH_DENYLIST = (
+    "docs/MINIMAX_MASTER_PROMPT.md",
+    "docs/MINIMAX_MASTER_PROMPT_BACKUP.md",
+    "docs/PROMPTS/*",
+)
+
+CONTENT_RULES: tuple[Rule, ...] = (
+    Rule(
+        "absolute-user-home-path",
+        re.compile(r"(?i)(/Users/[A-Za-z0-9._-]+|/home/[A-Za-z0-9._-]+|C:\\Users\\[A-Za-z0-9._-]+)"),
+        "absolute local user path found",
+    ),
+    Rule(
+        "windows-user-profile-path",
+        re.compile(r"(?i)\\Users\\[A-Za-z0-9._-]+"),
+        "windows user profile path found",
+    ),
+    Rule(
+        "secret-assignment",
+        re.compile(
+            r"(?i)\b(api[_-]?key|secret|token|password|bearer)\b\s*[:=]\s*['\"][^'\"\s]{12,}['\"]"
+        ),
+        "possible committed secret found",
+    ),
 )
 
 RUNTIME_PATH_DENYLIST = TRACKED_PATH_DENYLIST + (
@@ -129,6 +140,73 @@ def scan_ignored_runtime_files(root: Path) -> list[Violation]:
                     message="ignored runtime data exists in the working tree",
                 )
             )
+    return violations
+
+
+def scan_history(root: Path) -> list[Violation]:
+    """Flag private paths and secret-like text that remain in git history."""
+    root = root.resolve()
+    listed = subprocess.run(
+        ["git", "rev-list", "--objects", "--all"],
+        cwd=root,
+        check=True,
+        stdout=subprocess.PIPE,
+    )
+    blobs: list[tuple[str, str]] = []
+    for line in listed.stdout.decode("utf-8", errors="replace").splitlines():
+        if " " not in line:
+            continue
+        sha, path = line.split(" ", 1)
+        blobs.append((sha, path))
+
+    violations: list[Violation] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    def add(path: str, rule: str, message: str, snippet: str = "", line: int | None = None) -> None:
+        key = (path, rule, snippet)
+        if key in seen:
+            return
+        seen.add(key)
+        violations.append(Violation(path=path, rule=rule, message=message, line=line, snippet=snippet))
+
+    flagged_paths: set[str] = set()
+    for _sha, path in blobs:
+        if path in flagged_paths or not _matches_any(path, HISTORY_PATH_DENYLIST):
+            continue
+        flagged_paths.add(path)
+        add(path, "private-history-path", "private file remains in git history")
+
+    if not blobs:
+        return violations
+
+    dumped = subprocess.run(
+        ["git", "cat-file", "--batch"],
+        cwd=root,
+        input="".join(f"{sha}\n" for sha, _path in blobs).encode(),
+        check=True,
+        stdout=subprocess.PIPE,
+    )
+    data = dumped.stdout
+    offset = 0
+    for _sha, path in blobs:
+        newline = data.find(b"\n", offset)
+        if newline < 0:
+            break
+        header = data[offset:newline].decode("utf-8", errors="replace")
+        offset = newline + 1
+        parts = header.split()
+        if len(parts) < 3:
+            continue
+        size = int(parts[2])
+        blob = data[offset : offset + size]
+        offset += size + 1
+        if parts[1] != "blob" or _looks_binary(blob):
+            continue
+        text = blob.decode("utf-8", errors="replace")
+        for line_no, line in enumerate(text.splitlines(), start=1):
+            for rule in CONTENT_RULES:
+                if rule.pattern.search(line):
+                    add(path, rule.name, rule.message, line.strip()[:160], line_no)
     return violations
 
 

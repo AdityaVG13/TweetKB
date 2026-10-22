@@ -26,9 +26,9 @@ The collector does **not** collect:
 ## Browser Automation
 
 - Uses your **logged-in browser session** (Browser-Harness managed Chrome or your normal Chrome)
-- Read-only: scrolls, reads DOM, extracts text
-- Never posts, likes, follows, unfollows, deletes, messages, or changes account settings
-- Never modifies your X/Twitter account
+- Read-only by default: scrolls, reads DOM, extracts text.
+- `tweetkb unbookmark --ids … --yes` removes selected bookmarks on X. Local rows stay. Without `--yes` it does not click anything.
+- It does not post, like, follow, message, or change account settings.
 
 ## Optional LLM Features
 

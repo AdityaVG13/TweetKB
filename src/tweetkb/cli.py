@@ -233,6 +233,7 @@ def main(argv: list[str] | None = None) -> int:
 
     release_audit = sub.add_parser("release-audit", help="Scan tracked files for public-release blockers")
     release_audit.add_argument("--strict-worktree", action="store_true", help="Also fail on ignored local data files")
+    release_audit.add_argument("--history", action="store_true", help="Also scan git history for removed private files")
 
     # benchmark
     bench = sub.add_parser("benchmark", help="Run performance benchmarks")
@@ -957,10 +958,12 @@ def _cmd_doctor(store, db_path: Path) -> int:
 
 
 def _cmd_release_audit(args) -> int:
-    from .release_audit import audit_repository, format_violations
+    from .release_audit import audit_repository, format_violations, scan_history
 
     root = Path.cwd()
     violations = audit_repository(root, strict_worktree=args.strict_worktree)
+    if args.history:
+        violations.extend(scan_history(root))
     if violations:
         print(format_violations(violations), file=sys.stderr)
         return 1

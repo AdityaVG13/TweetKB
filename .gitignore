@@ -31,9 +31,8 @@ build/
 *.db
 *.bak
 
-# Design mockups and local perf captures.
-sketches/*.png
-sketches/*.svg
+# Local design mockups. They are not product docs and may contain archive text.
+sketches/
 tests/artifacts/
 .skill-loop-progress.md
 

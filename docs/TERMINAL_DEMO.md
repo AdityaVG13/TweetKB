@@ -9,4 +9,13 @@ tweetkb search rust
 tweetkb digest
 ```
 
-![TweetKB terminal menu](assets/tweetkb-menu.png)
+`tweetkb wizard` prints:
+
+```text
+1. Collect bookmarks
+2. Search
+3. Analyze (offline)
+4. Stats
+5. Export
+0. Quit
+```

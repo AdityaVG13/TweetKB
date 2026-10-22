@@ -97,7 +97,7 @@ TweetKB is built around a simple rule: your bookmark archive stays yours.
 - Export folders such as `obsidian-vault/` and `exports/` are ignored.
 - Browser profiles, cookies, `.env`, and local config files are ignored.
 - Collection is read-only. It scrolls and reads visible bookmark content.
-- It never posts, likes, follows, deletes, messages, or changes account settings.
+- `tweetkb unbookmark --ids … --yes` is the one write to X: it removes selected bookmarks there. Local rows stay. It does not post, like, follow, message, or change account settings.
 - Cloud LLM providers are off unless you explicitly enable them.
 
 ## Requirements
@@ -309,7 +309,7 @@ tweetkb search rust --open
 tweetkb find nomic --json
 tweetkb digest --json
 tweetkb related STATUS_ID --json
-tweetkb map --from 0xSero
+tweetkb map --from doodlestein
 tweetkb atlas
 tweetkb tui
 ```

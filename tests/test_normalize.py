@@ -46,17 +46,17 @@ def test_outbound_links_drop_profile_urls_but_keep_github():
 def test_urls_from_tweet_text_join_split_https_lines():
     from tweetkb.normalize import urls_from_tweet_text
 
-    urls = urls_from_tweet_text("Rabbit hole alert\nhttps://\ncari.institute/aesthetics")
-    assert urls == ["https://cari.institute/aesthetics"]
+    urls = urls_from_tweet_text("see this\nhttps://\nfixture.example/aesthetics")
+    assert urls == ["https://fixture.example/aesthetics"]
 
 
 def test_urls_from_tweet_text_joins_wrapped_github_path():
     from tweetkb.normalize import urls_from_tweet_text
 
     urls = urls_from_tweet_text(
-        "Or just use:\nhttps://\ngithub.com/Capta1nRaj/gos\nhipit\nClaude built your app"
+        "or use:\nhttps://\ngithub.com/example/gos\nhipit\nsee the repo"
     )
-    assert urls == ["https://github.com/Capta1nRaj/goshipit"]
+    assert urls == ["https://github.com/example/goshipit"]
 
 
 def test_urls_from_tweet_text_drops_host_without_a_dot():
@@ -69,14 +69,14 @@ def test_urls_from_tweet_text_drops_host_without_a_dot():
 def test_repair_links_replaces_implausible_hosts(store):
     from tweetkb.normalize import repair_links_from_text
 
-    bookmark_id = add_bookmark(store, "11", "see\nhttps://\ncari.institute/aesthetics")
+    bookmark_id = add_bookmark(store, "11", "see\nhttps://\nfixture.example/aesthetics")
     store._store_bookmark_links(bookmark_id, ("https://pub-ae",))
 
     repair_links_from_text(store)
 
     urls = [row["url"] for row in store.get_bookmark_links(bookmark_id)]
     assert "https://pub-ae" not in urls
-    assert "https://cari.institute/aesthetics" in urls
+    assert "https://fixture.example/aesthetics" in urls
 
 
 def test_normalize_collected_item_requires_status_and_body():

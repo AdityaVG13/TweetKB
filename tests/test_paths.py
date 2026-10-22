@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 from tweetkb.cli import main
-from tweetkb.release_audit import Violation, audit_repository, format_violations, scan_paths
+from tweetkb.release_audit import Violation, audit_repository, format_violations, scan_history, scan_paths
 
 
 def test_compress_command_is_not_part_of_the_cli(capsys):
@@ -66,6 +67,50 @@ def test_release_audit_flags_tracked_runtime_data(tmp_path):
     data_file.write_text("not a real database")
     violations = scan_paths(tmp_path, [Path("data/bookmarks.sqlite3")], denylist=("data/*",))
     assert [item.rule for item in violations] == ["tracked-runtime-artifact"]
+
+
+def test_history_scan_flags_a_removed_home_path(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "test@example.com")
+    _git(repo, "config", "user.name", "test")
+    secret = repo / "docs" / "MINIMAX_MASTER_PROMPT.md"
+    secret.parent.mkdir()
+    secret.write_text("tools live at " + "/Users/" + "localname/AI/MiniMax/tools\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "add private prompt")
+    secret.unlink()
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-m", "remove private prompt")
+
+    violations = scan_history(repo)
+    rules = {item.rule for item in violations}
+    assert "private-history-path" in rules
+    assert "absolute-user-home-path" in rules
+
+
+def test_public_docs_do_not_claim_the_tool_never_deletes():
+    text = "\n".join(
+        path.read_text()
+        for path in (Path("README.md"), Path("docs/PRIVACY.md"))
+    ).lower()
+    assert "never posts, likes, follows, deletes" not in text
+    assert "unbookmark" in text
+    assert "--yes" in text
+
+
+def test_terminal_demo_matches_the_current_wizard():
+    text = Path("docs/TERMINAL_DEMO.md").read_text()
+    assert "tweetkb-menu.png" not in text
+    assert "TweetZip" not in text
+    assert "1. Collect bookmarks" in text
+    assert "tweetkb wizard" in text
+    assert not Path("docs/assets/tweetkb-menu.png").exists()
+
+
+def _git(repo: Path, *args: str) -> None:
+    subprocess.run(["git", *args], cwd=repo, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
 def test_format_violations_includes_location_and_rule():
